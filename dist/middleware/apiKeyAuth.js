@@ -5,8 +5,9 @@ const ApiKey_1 = require("../models/ApiKey");
 const Role_1 = require("../models/Role");
 const express_1 = require("express");
 function createApiKeyMiddleware(options = {}) {
+    var _a;
     const headerName = options.headerName || "x-api-key";
-    const exposeStats = options.exposeStatsEndpoint ?? false;
+    const exposeStats = (_a = options.exposeStatsEndpoint) !== null && _a !== void 0 ? _a : false;
     const statsPath = options.statsEndpointPath || "/api-key-stats";
     const router = (0, express_1.Router)();
     // Built-in stats endpoint
@@ -36,6 +37,7 @@ function createApiKeyMiddleware(options = {}) {
     }
     // Main middleware
     const apiKeyAuthMiddleware = async function (req, res, next) {
+        var _a;
         const apiKey = req.header(headerName);
         if (!apiKey) {
             return res.status(401).json({ error: "API key missing" });
@@ -86,7 +88,7 @@ function createApiKeyMiddleware(options = {}) {
         }
         // Monthly cap (from role config, fallback 10k)
         const monthlyCap = typeof roleConfig.maxMonthlyUsage === "number" ? roleConfig.maxMonthlyUsage : 10000;
-        if ((keyDoc.requestCountMonth ?? 0) >= monthlyCap) {
+        if (((_a = keyDoc.requestCountMonth) !== null && _a !== void 0 ? _a : 0) >= monthlyCap) {
             return res.status(429).json({ error: "Monthly quota exceeded" });
         }
         // Endpoint authorization can be handled by route-level middleware (see allowRoles)
@@ -94,8 +96,9 @@ function createApiKeyMiddleware(options = {}) {
         req.apiKeyDoc = keyDoc;
         // Only increment requestCountMonth if response status is 200
         res.on("finish", async () => {
+            var _a;
             if (res.statusCode === 200) {
-                keyDoc.requestCountMonth = (keyDoc.requestCountMonth ?? 0) + 1;
+                keyDoc.requestCountMonth = ((_a = keyDoc.requestCountMonth) !== null && _a !== void 0 ? _a : 0) + 1;
                 keyDoc.lastUsedAt = now;
                 await keyDoc.save();
             }
