@@ -3,13 +3,15 @@
     "api_key_express": "./dist/api_key_express.js"
   },
   "name": "express-api-key",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "mega": "api_key_express role mega 0.5 500000",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "tsc",
-    "start:example": "npx tsx example.ts"
+    "start:example": "npx tsx src/example.ts",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "express",
@@ -28,6 +30,7 @@
   ],
   "dependencies": {
     "discord.js": "^14.21.0",
+    "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "mongoose": "^8.16.5",
     "rate-limiter-flexible": "^7.2.0",

@@ -1,10 +1,6 @@
 import { NextFunction, Request, Response } from "express";
-import { RateLimiterMemory } from "rate-limiter-flexible";
 import { ApiKeyModel } from "../models/ApiKey";
 import { RoleModel } from "../models/Role";
-
-// In-memory rate limiter for per-second checks (per key)
-const perSecondLimiters: Record<string, RateLimiterMemory> = {};
 
 import { Router } from "express";
 
