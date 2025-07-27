@@ -1,6 +1,11 @@
 import { NextFunction, Request, Response } from "express";
-import { ApiKeyModel } from "../models/ApiKey";
-import { RoleModel } from "../models/Role";
+
+
+import { Model, Schema, Mongoose } from "mongoose";
+
+function getOrCreateModel<T extends object>(mongoose: Mongoose, name: string, schema: Schema<T>): Model<T> {
+  return mongoose.models[name] || mongoose.model<T>(name, schema);
+}
 
 import { Router } from "express";
 
@@ -10,7 +15,26 @@ export interface ApiKeyMiddlewareOptions {
   statsEndpointPath?: string;
 }
 
-export function createApiKeyMiddleware(options: ApiKeyMiddlewareOptions = {}) {
+
+export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options: ApiKeyMiddlewareOptions = {}) {
+  // Define schemas inline to avoid import cycles
+  const ApiKeySchema = new Schema({
+    key: { type: String, required: true, unique: true },
+    role: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+    daysValid: { type: Number, default: 30 },
+    lastUsedAt: { type: Date },
+    requestCountMonth: { type: Number, default: 0 },
+    requestCountStart: { type: Date },
+  });
+  const RoleSchema = new Schema({
+    name: { type: String, required: true, unique: true },
+    minIntervalSeconds: { type: Number, default: 2 },
+    maxMonthlyUsage: { type: Number, default: 10000 },
+  });
+  const ApiKeyModel = getOrCreateModel(mongoose, "ApiKey", ApiKeySchema);
+  const RoleModel = getOrCreateModel(mongoose, "Role", RoleSchema);
+
   const headerName = options.headerName || "x-api-key";
   const exposeStats = options.exposeStatsEndpoint ?? false;
   const statsPath = options.statsEndpointPath || "/api-key-stats";

@@ -1,7 +1,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import { allowRoles } from "./middleware/allowRoles";
-import { createApiKeyMiddleware } from "./middleware/apiKeyAuth";
+import { createApiKeyMiddlewareWithConnection } from "./middleware/apiKeyAuth";
 import { ApiKeyModel } from "./models/ApiKey";
 import { RoleModel } from "./models/Role";
 
@@ -12,8 +12,7 @@ app.use(express.json());
 mongoose.connect("mongodb://localhost:27017/express-api-key-demo");
 
 // Use the API key middleware globally
-app.use(createApiKeyMiddleware());
-
+app.use(createApiKeyMiddlewareWithConnection(mongoose));
 // Example protected route
 app.get("/data", (req, res) => {
   res.json({ message: "You have access to /data!", apiKey: (req as any).apiKeyDoc });

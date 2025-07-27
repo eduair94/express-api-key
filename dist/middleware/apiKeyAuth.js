@@ -1,11 +1,30 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createApiKeyMiddleware = createApiKeyMiddleware;
-const ApiKey_1 = require("../models/ApiKey");
-const Role_1 = require("../models/Role");
+exports.createApiKeyMiddlewareWithConnection = createApiKeyMiddlewareWithConnection;
+const mongoose_1 = require("mongoose");
+function getOrCreateModel(mongoose, name, schema) {
+    return mongoose.models[name] || mongoose.model(name, schema);
+}
 const express_1 = require("express");
-function createApiKeyMiddleware(options = {}) {
+function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
     var _a;
+    // Define schemas inline to avoid import cycles
+    const ApiKeySchema = new mongoose_1.Schema({
+        key: { type: String, required: true, unique: true },
+        role: { type: String, required: true },
+        createdAt: { type: Date, default: Date.now },
+        daysValid: { type: Number, default: 30 },
+        lastUsedAt: { type: Date },
+        requestCountMonth: { type: Number, default: 0 },
+        requestCountStart: { type: Date },
+    });
+    const RoleSchema = new mongoose_1.Schema({
+        name: { type: String, required: true, unique: true },
+        minIntervalSeconds: { type: Number, default: 2 },
+        maxMonthlyUsage: { type: Number, default: 10000 },
+    });
+    const ApiKeyModel = getOrCreateModel(mongoose, "ApiKey", ApiKeySchema);
+    const RoleModel = getOrCreateModel(mongoose, "Role", RoleSchema);
     const headerName = options.headerName || "x-api-key";
     const exposeStats = (_a = options.exposeStatsEndpoint) !== null && _a !== void 0 ? _a : false;
     const statsPath = options.statsEndpointPath || "/api-key-stats";
@@ -14,8 +33,8 @@ function createApiKeyMiddleware(options = {}) {
     if (exposeStats) {
         router.get(statsPath, async (req, res) => {
             const apiKey = req.header(headerName);
-            const apiKeyDoc = await ApiKey_1.ApiKeyModel.findOne({ key: apiKey });
-            const roleInfo = apiKeyDoc ? await Role_1.RoleModel.findOne({ name: apiKeyDoc.role }) : null;
+            const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+            const roleInfo = apiKeyDoc ? await RoleModel.findOne({ name: apiKeyDoc.role }) : null;
             if (!apiKeyDoc) {
                 return res.status(404).json({ error: "API key not found" });
             }
@@ -43,7 +62,7 @@ function createApiKeyMiddleware(options = {}) {
             return res.status(401).json({ error: "API key missing" });
         }
         // Find API key in MongoDB
-        const keyDoc = await ApiKey_1.ApiKeyModel.findOne({ key: apiKey });
+        const keyDoc = await ApiKeyModel.findOne({ key: apiKey });
         if (!keyDoc) {
             return res.status(401).json({ error: "Invalid API key" });
         }
@@ -63,7 +82,7 @@ function createApiKeyMiddleware(options = {}) {
         // Get role config if present (from DB, not hardcoded)
         let roleConfig = {};
         if (keyDoc.role) {
-            const roleDoc = await Role_1.RoleModel.findOne({ name: keyDoc.role });
+            const roleDoc = await RoleModel.findOne({ name: keyDoc.role });
             if (roleDoc) {
                 roleConfig = roleDoc.toObject();
             }

@@ -14,7 +14,7 @@ app.use(express_1.default.json());
 // Connect to MongoDB (adjust URI as needed)
 mongoose_1.default.connect("mongodb://localhost:27017/express-api-key-demo");
 // Use the API key middleware globally
-app.use((0, apiKeyAuth_1.createApiKeyMiddleware)());
+app.use((0, apiKeyAuth_1.createApiKeyMiddlewareWithConnection)(mongoose_1.default));
 // Example protected route
 app.get("/data", (req, res) => {
     res.json({ message: "You have access to /data!", apiKey: req.apiKeyDoc });
