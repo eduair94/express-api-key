@@ -1,4 +1,4 @@
 node_modules
-dist
-roles.json
+# dist and roles.json must be published for npm package, do not ignore
 .env
+roles.json
