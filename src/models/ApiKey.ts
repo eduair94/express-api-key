@@ -10,7 +10,7 @@ export interface IApiKey extends Document {
   requestCountStart?: Date;
 }
 
-const ApiKeySchema = new Schema<IApiKey>({
+export const ApiKeySchema = new Schema<IApiKey>({
   key: { type: String, required: true, unique: true },
   role: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },

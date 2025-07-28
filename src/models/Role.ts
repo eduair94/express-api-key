@@ -7,7 +7,7 @@ export interface IRole extends Document {
   maxMonthlyUsage?: number;
 }
 
-const RoleSchema = new Schema<IRole>({
+export const RoleSchema = new Schema<IRole>({
   name: { type: String, required: true, unique: true },
   minIntervalSeconds: { type: Number, default: 2 },
   maxMonthlyUsage: { type: Number, default: 10000 },
