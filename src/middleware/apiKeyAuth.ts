@@ -1,20 +1,19 @@
-import { NextFunction, Request, Response } from "express";
-import { Model, Mongoose, Schema } from "mongoose";
-import { Router, json, urlencoded } from "express";
 import cookieParser from "cookie-parser";
-import { ApiKeySchema } from "../models/ApiKey";
-import { RoleSchema } from "../models/Role";
-import { 
-  DashboardData, 
+import { NextFunction, Request, Response, Router, json, urlencoded } from "express";
+import { Model, Mongoose, Schema } from "mongoose";
+import {
+  DashboardData,
   computeDashboardData,
-  renderDashboard, 
-  renderLoginPage,
-  initSessionStore,
   createSession,
-  getSessionApiKey,
   destroySession,
+  getSessionApiKey,
+  initSessionStore,
+  renderDashboard,
+  renderLoginPage,
   setSessionSecret
 } from "../dashboard";
+import { ApiKeySchema } from "../models/ApiKey";
+import { RoleSchema } from "../models/Role";
 
 function getOrCreateModel<T extends object>(mongoose: Mongoose, name: string, schema: Schema<T>): Model<T> {
   return mongoose.models[name] || mongoose.model<T>(name, schema);

@@ -1,6 +1,6 @@
+import * as crypto from 'crypto';
 import { Request, Response } from 'express';
 import { Model, Mongoose } from 'mongoose';
-import * as crypto from 'crypto';
 import { ISession, SessionSchema } from '../models/Session';
 
 /**

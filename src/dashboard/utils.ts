@@ -1,4 +1,4 @@
-import { DashboardData, ComputedDashboardData } from './types';
+import { ComputedDashboardData, DashboardData } from './types';
 
 /**
  * Computes derived values from raw dashboard data
