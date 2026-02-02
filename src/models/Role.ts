@@ -5,12 +5,14 @@ export interface IRole extends Document {
   name: string;
   minIntervalSeconds?: number;
   maxMonthlyUsage?: number;
+  allowedEndpoints?: string[];
 }
 
 export const RoleSchema = new Schema<IRole>({
   name: { type: String, required: true, unique: true },
   minIntervalSeconds: { type: Number, default: 2 },
   maxMonthlyUsage: { type: Number, default: 10000 },
+  allowedEndpoints: { type: [String], default: [] },
 });
 
 export const RoleModel = model<IRole>("Role", RoleSchema);

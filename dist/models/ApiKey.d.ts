@@ -1,4 +1,4 @@
-import { Document } from "mongoose";
+import { Document, Schema } from "mongoose";
 export interface IApiKey extends Document {
     key: string;
     role: string;
@@ -8,6 +8,15 @@ export interface IApiKey extends Document {
     requestCountMonth: number;
     requestCountStart?: Date;
 }
+export declare const ApiKeySchema: Schema<IApiKey, import("mongoose").Model<IApiKey, any, any, any, Document<unknown, any, IApiKey, any> & IApiKey & Required<{
+    _id: unknown;
+}> & {
+    __v: number;
+}, any>, {}, {}, {}, {}, import("mongoose").DefaultSchemaOptions, IApiKey, Document<unknown, {}, import("mongoose").FlatRecord<IApiKey>, {}> & import("mongoose").FlatRecord<IApiKey> & Required<{
+    _id: unknown;
+}> & {
+    __v: number;
+}>;
 export declare const ApiKeyModel: import("mongoose").Model<IApiKey, {}, {}, {}, Document<unknown, {}, IApiKey, {}> & IApiKey & Required<{
     _id: unknown;
 }> & {

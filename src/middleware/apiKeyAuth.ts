@@ -1,19 +1,34 @@
 import { NextFunction, Request, Response } from "express";
-
 import { Model, Mongoose, Schema } from "mongoose";
+import { Router, json, urlencoded } from "express";
+import cookieParser from "cookie-parser";
+import { ApiKeySchema } from "../models/ApiKey";
+import { RoleSchema } from "../models/Role";
+import { 
+  DashboardData, 
+  computeDashboardData,
+  renderDashboard, 
+  renderLoginPage,
+  initSessionStore,
+  createSession,
+  getSessionApiKey,
+  destroySession,
+  setSessionSecret
+} from "../dashboard";
 
 function getOrCreateModel<T extends object>(mongoose: Mongoose, name: string, schema: Schema<T>): Model<T> {
   return mongoose.models[name] || mongoose.model<T>(name, schema);
 }
 
-import { Router } from "express";
-import { ApiKeySchema } from "../models/ApiKey";
-import { RoleSchema } from "../models/Role";
-
 export interface ApiKeyMiddlewareOptions {
   headerName?: string;
   exposeStatsEndpoint?: boolean;
   statsEndpointPath?: string;
+  countOnly200?: boolean; // If true, only count requests with 200 status code (default: true)
+  exposeDashboard?: boolean; // If true, expose a UI dashboard at dashboardPath
+  dashboardPath?: string; // Path for the dashboard UI (default: "/dashboard")
+  sessionSecret?: string; // Secret for session signing (recommended to set in production)
+  sessionExpiry?: number; // Session expiry in milliseconds (default: 24 hours)
 }
 
 export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options: ApiKeyMiddlewareOptions = {}) {
@@ -23,7 +38,28 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
   const headerName = options.headerName || "x-api-key";
   const exposeStats = options.exposeStatsEndpoint ?? false;
   const statsPath = options.statsEndpointPath || "/api-key-stats";
+  const countOnly200 = options.countOnly200 ?? true; // Default to only counting 200 status
+  const exposeDashboard = options.exposeDashboard ?? false;
+  const dashboardPath = options.dashboardPath || "/dashboard";
+  const sessionExpiry = options.sessionExpiry ?? 24 * 60 * 60 * 1000; // 24 hours default
   const router = Router();
+
+  // Set session secret if provided
+  if (options.sessionSecret) {
+    setSessionSecret(options.sessionSecret);
+  }
+
+  // Initialize session store with MongoDB connection for persistence
+  if (exposeDashboard) {
+    initSessionStore(mongoose);
+  }
+
+  // Add cookie parser for dashboard session support
+  if (exposeDashboard) {
+    router.use(cookieParser());
+    router.use(json());
+    router.use(urlencoded({ extended: true }));
+  }
 
   // Built-in stats endpoint
   if (exposeStats) {
@@ -53,6 +89,120 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     });
   }
 
+  // Dashboard UI endpoints with session-based authentication
+  if (exposeDashboard) {
+    const sessionOptions = { 
+      sessionExpiry,
+      cookiePath: dashboardPath,
+    };
+
+    // Login page (GET) - show login form or redirect to dashboard if already logged in
+    router.get(`${dashboardPath}/login`, async (req: Request, res: Response) => {
+      const sessionApiKey = await getSessionApiKey(req, sessionOptions);
+      
+      if (sessionApiKey) {
+        // Already logged in, redirect to dashboard
+        return res.redirect(dashboardPath);
+      }
+
+      res.setHeader("Content-Type", "text/html");
+      return res.send(renderLoginPage({ dashboardPath }));
+    });
+
+    // Login handler (POST) - validate API key and create session
+    router.post(`${dashboardPath}/login`, async (req: Request, res: Response) => {
+      const apiKey = req.body?.apiKey;
+      
+      if (!apiKey) {
+        res.setHeader("Content-Type", "text/html");
+        return res.status(400).send(renderLoginPage({ 
+          error: 'API key is required',
+          dashboardPath 
+        }));
+      }
+
+      const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+      
+      if (!apiKeyDoc) {
+        res.setHeader("Content-Type", "text/html");
+        return res.status(401).send(renderLoginPage({ 
+          error: 'Invalid API key. Please check your key and try again.',
+          dashboardPath 
+        }));
+      }
+
+      // Create session and redirect to dashboard
+      await createSession(res, apiKey, sessionOptions);
+      return res.redirect(dashboardPath);
+    });
+
+    // Logout handler - destroy session and redirect to login
+    router.get(`${dashboardPath}/logout`, async (req: Request, res: Response) => {
+      await destroySession(req, res, sessionOptions);
+      return res.redirect(`${dashboardPath}/login`);
+    });
+
+    // Main dashboard route - requires valid session
+    router.get(dashboardPath, async (req: Request, res: Response) => {
+      // Check for session-based authentication first
+      let apiKey = await getSessionApiKey(req, sessionOptions);
+      
+      // Fallback to header-based auth for API clients
+      if (!apiKey) {
+        apiKey = req.header(headerName) || null;
+      }
+      
+      if (!apiKey) {
+        // No session or header - redirect to login
+        return res.redirect(`${dashboardPath}/login`);
+      }
+
+      const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+      
+      if (!apiKeyDoc) {
+        // Invalid key - destroy any existing session and redirect to login
+        await destroySession(req, res, sessionOptions);
+        return res.redirect(`${dashboardPath}/login`);
+      }
+
+      const roleInfo = apiKeyDoc.role ? await RoleModel.findOne({ name: apiKeyDoc.role }) : null;
+      
+      let keyExpiresAt: Date | string | null = null;
+      const start = apiKeyDoc.requestCountStart;
+      if (start && apiKeyDoc.daysValid) {
+        keyExpiresAt = new Date(new Date(start).getTime() + apiKeyDoc.daysValid * 24 * 60 * 60 * 1000);
+      } else {
+        keyExpiresAt = "Api key not used yet";
+      }
+
+      // Convert roleInfo to plain object with allowedEndpoints
+      const roleData = roleInfo ? roleInfo.toObject() : null;
+
+      const dashboardData: DashboardData = {
+        key: apiKeyDoc.key,
+        role: apiKeyDoc.role,
+        requestCountMonth: apiKeyDoc.requestCountMonth ?? null,
+        requestCountStart: apiKeyDoc.requestCountStart ?? null,
+        lastUsedAt: apiKeyDoc.lastUsedAt ?? null,
+        keyExpiresAt,
+        roleInfo: roleData ? {
+          name: roleData.name,
+          maxMonthlyUsage: roleData.maxMonthlyUsage,
+          minIntervalSeconds: roleData.minIntervalSeconds,
+          allowedEndpoints: roleData.allowedEndpoints,
+        } : null,
+        daysValid: apiKeyDoc.daysValid ?? null,
+        createdAt: (apiKeyDoc as any).createdAt ?? null,
+      };
+
+      // Compute additional dashboard metrics
+      const computedData = computeDashboardData(dashboardData);
+
+      res.setHeader("Content-Type", "text/html");
+      return res.send(renderDashboard(computedData));
+    });
+  }
+
   // Main middleware
   const apiKeyAuthMiddleware = async function (req: Request, res: Response, next: NextFunction) {
     const apiKey = req.header(headerName);
@@ -66,9 +216,9 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
       return res.status(401).json({ error: "Invalid API key" });
     }
 
-    // Check expiration: daysValid from first use (requestCountStart or createdAt)
+    // Check expiration: daysValid from first use (requestCountStart)
     if (typeof keyDoc.daysValid === "number") {
-      const start = keyDoc.requestCountStart || keyDoc.createdAt;
+      const start = keyDoc.requestCountStart;
       if (start) {
         const expiresAt = new Date(new Date(start).getTime() + keyDoc.daysValid * 24 * 60 * 60 * 1000);
         if (new Date() > expiresAt) {
@@ -79,7 +229,6 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
 
     // --- Rate limiting and usage tracking (per-role configurable) ---
     const now = new Date();
-    // monthKey is now only declared below for quota tracking
 
     // Get role config if present (from DB, not hardcoded)
     let roleConfig: any = {};
@@ -120,9 +269,17 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     // Attach key info to request for downstream use
     (req as any).apiKeyDoc = keyDoc;
 
-    // Only increment requestCountMonth if response status is 200
+    // Increment requestCountMonth based on countOnly200 option
     res.on("finish", async () => {
-      if (res.statusCode === 200) {
+      if (countOnly200) {
+        // Only count successful (200) requests
+        if (res.statusCode === 200) {
+          keyDoc.requestCountMonth = (keyDoc.requestCountMonth ?? 0) + 1;
+          keyDoc.lastUsedAt = now;
+          await keyDoc.save();
+        }
+      } else {
+        // Count all requests regardless of status code
         keyDoc.requestCountMonth = (keyDoc.requestCountMonth ?? 0) + 1;
         keyDoc.lastUsedAt = now;
         await keyDoc.save();

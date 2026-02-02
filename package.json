@@ -3,13 +3,14 @@
     "api_key_express": "./dist/api_key_express.js"
   },
   "name": "express-api-key",
-  "version": "1.0.6",
+  "version": "1.0.9",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "mega": "api_key_express role mega 0.5 500000",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "tsc",
+    "build": "tsc && npm run copy-templates",
+    "copy-templates": "node -e \"const fs=require('fs');const path=require('path');const src='src/dashboard/templates';const dest='dist/dashboard/templates';fs.mkdirSync(dest,{recursive:true});fs.readdirSync(src).forEach(f=>fs.copyFileSync(path.join(src,f),path.join(dest,f)));\"",
     "start:example": "npx tsx src/example.ts",
     "prepublishOnly": "npm run build"
   },
@@ -23,12 +24,21 @@
   "author": "",
   "license": "ISC",
   "description": "Express middleware for API key authentication, role-based access, and rate limiting.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eduair94/express-api-key.git"
+  },
+  "homepage": "https://github.com/eduair94/express-api-key#readme",
+  "bugs": {
+    "url": "https://github.com/eduair94/express-api-key/issues"
+  },
   "files": [
     "dist",
     "README.md",
     "roles.json"
   ],
   "dependencies": {
+    "cookie-parser": "^1.4.7",
     "discord.js": "^14.21.0",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
@@ -38,6 +48,7 @@
     "uuid4": "^2.0.3"
   },
   "devDependencies": {
+    "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.3",
     "@types/uuid4": "^2.0.3",
     "supertest": "^7.1.4",
