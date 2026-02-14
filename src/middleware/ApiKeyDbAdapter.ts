@@ -8,6 +8,12 @@ export interface IApiKey {
   lastUsedAt?: Date;
   requestCountMonth: number;
   requestCountStart?: Date;
+
+  // Per-key overrides (when set, these take priority over role defaults)
+  maxMonthlyUsage?: number | null;
+  minIntervalSeconds?: number | null;
+  expiresAt?: Date | null;
+
   save?: () => Promise<void>;
 }
 

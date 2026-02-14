@@ -206,7 +206,7 @@ function formatDateLong(date) {
 /**
  * Renders the main dashboard HTML
  */
-function renderDashboard(data) {
+function renderDashboard(data, dashboardPath = '/dashboard') {
     var _a, _b, _c;
     const template = loadTemplate('dashboard.html');
     // Prepare template variables
@@ -228,6 +228,9 @@ function renderDashboard(data) {
         ? formatDateLong(data.keyExpiresAt)
         : 'Activate to start countdown';
     const templateData = {
+        // Paths
+        logoutPath: `${dashboardPath}/logout`,
+        cssPath: `${dashboardPath}/css`,
         // API Key info
         key: escapeHtml(data.key),
         role: escapeHtml(data.role),
@@ -242,11 +245,11 @@ function renderDashboard(data) {
         usageStatusText,
         // Renewal info
         renewalDaysDisplay: data.renewalDays !== null ? data.renewalDays.toString() : '—',
-        renewalDateFormatted: data.renewalDate ? formatDateLong(data.renewalDate) : 'Not started yet',
+        renewalDateDisplay: data.renewalDate ? formatDateLong(data.renewalDate) : 'Not started yet',
         // Key expiration
         keyExpiringSoonBadge,
         keyExpiresDaysDisplay,
-        keyExpiresDateFormatted,
+        keyExpiresDateDisplay: keyExpiresDateFormatted,
         // Rate limit
         minIntervalSeconds: (_b = (_a = data.roleInfo) === null || _a === void 0 ? void 0 : _a.minIntervalSeconds) !== null && _b !== void 0 ? _b : 2,
         // Details - must match template placeholders

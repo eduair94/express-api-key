@@ -10,5 +10,9 @@ exports.ApiKeySchema = new mongoose_1.Schema({
     lastUsedAt: { type: Date },
     requestCountMonth: { type: Number, default: 0 },
     requestCountStart: { type: Date },
+    // Per-key overrides (when set, these take priority over role defaults)
+    maxMonthlyUsage: { type: Number, default: null },
+    minIntervalSeconds: { type: Number, default: null },
+    expiresAt: { type: Date, default: null },
 });
 exports.ApiKeyModel = (0, mongoose_1.model)("ApiKey", exports.ApiKeySchema);

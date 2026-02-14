@@ -8,6 +8,11 @@ export interface IApiKey extends Document {
   lastUsedAt?: Date;
   requestCountMonth: number;
   requestCountStart?: Date;
+
+  // Per-key overrides (when set, these take priority over role defaults)
+  maxMonthlyUsage?: number | null;      // Overrides role.maxMonthlyUsage
+  minIntervalSeconds?: number | null;   // Overrides role.minIntervalSeconds
+  expiresAt?: Date | null;              // Absolute expiration (overrides daysValid calculation)
 }
 
 export const ApiKeySchema = new Schema<IApiKey>({
@@ -18,6 +23,11 @@ export const ApiKeySchema = new Schema<IApiKey>({
   lastUsedAt: { type: Date },
   requestCountMonth: { type: Number, default: 0 },
   requestCountStart: { type: Date },
+
+  // Per-key overrides (when set, these take priority over role defaults)
+  maxMonthlyUsage: { type: Number, default: null },
+  minIntervalSeconds: { type: Number, default: null },
+  expiresAt: { type: Date, default: null },
 });
 
 export const ApiKeyModel = model<IApiKey>("ApiKey", ApiKeySchema);

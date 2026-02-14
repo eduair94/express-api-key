@@ -1,4 +1,4 @@
-import { Schema, Document } from 'mongoose';
+import { Document, Schema } from 'mongoose';
 export interface ISession extends Document {
     token: string;
     apiKey: string;

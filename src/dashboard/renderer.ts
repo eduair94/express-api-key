@@ -181,7 +181,7 @@ function formatDateLong(date: Date | string | null): string {
 /**
  * Renders the main dashboard HTML
  */
-export function renderDashboard(data: ComputedDashboardData): string {
+export function renderDashboard(data: ComputedDashboardData, dashboardPath: string = '/dashboard'): string {
   const template = loadTemplate('dashboard.html');
 
   // Prepare template variables
@@ -208,6 +208,10 @@ export function renderDashboard(data: ComputedDashboardData): string {
     : 'Activate to start countdown';
 
   const templateData: Record<string, string | number | null | undefined> = {
+    // Paths
+    logoutPath: `${dashboardPath}/logout`,
+    cssPath: `${dashboardPath}/css`,
+
     // API Key info
     key: escapeHtml(data.key),
     role: escapeHtml(data.role),
@@ -224,12 +228,12 @@ export function renderDashboard(data: ComputedDashboardData): string {
 
     // Renewal info
     renewalDaysDisplay: data.renewalDays !== null ? data.renewalDays.toString() : '—',
-    renewalDateFormatted: data.renewalDate ? formatDateLong(data.renewalDate) : 'Not started yet',
+    renewalDateDisplay: data.renewalDate ? formatDateLong(data.renewalDate) : 'Not started yet',
 
     // Key expiration
     keyExpiringSoonBadge,
     keyExpiresDaysDisplay,
-    keyExpiresDateFormatted,
+    keyExpiresDateDisplay: keyExpiresDateFormatted,
 
     // Rate limit
     minIntervalSeconds: data.roleInfo?.minIntervalSeconds ?? 2,

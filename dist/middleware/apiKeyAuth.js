@@ -4,11 +4,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createApiKeyMiddlewareWithConnection = createApiKeyMiddlewareWithConnection;
-const express_1 = require("express");
+exports.createRenewalFunction = createRenewalFunction;
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
+const express_1 = require("express");
+const dashboard_1 = require("../dashboard");
 const ApiKey_1 = require("../models/ApiKey");
 const Role_1 = require("../models/Role");
-const dashboard_1 = require("../dashboard");
 function getOrCreateModel(mongoose, name, schema) {
     return mongoose.models[name] || mongoose.model(name, schema);
 }
@@ -41,23 +42,33 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
     // Built-in stats endpoint
     if (exposeStats) {
         router.get(statsPath, async (req, res) => {
+            var _a, _b;
             const apiKey = req.header(headerName);
             const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
             const roleInfo = apiKeyDoc ? await RoleModel.findOne({ name: apiKeyDoc.role }) : null;
             if (!apiKeyDoc) {
                 return res.status(404).json({ error: "API key not found" });
             }
+            // Effective expiration: per-key expiresAt > daysValid calculation
             let expiresAt = null;
-            const start = apiKeyDoc.requestCountStart;
-            if (start) {
-                expiresAt = new Date(new Date(start).getTime() + apiKeyDoc.daysValid * 24 * 60 * 60 * 1000);
+            if (apiKeyDoc.expiresAt) {
+                expiresAt = new Date(apiKeyDoc.expiresAt);
             }
+            else {
+                const start = apiKeyDoc.requestCountStart;
+                if (start) {
+                    expiresAt = new Date(new Date(start).getTime() + apiKeyDoc.daysValid * 24 * 60 * 60 * 1000);
+                }
+            }
+            // Effective cap: per-key override > role > default
+            const effectiveCap = (_b = (_a = apiKeyDoc.maxMonthlyUsage) !== null && _a !== void 0 ? _a : roleInfo === null || roleInfo === void 0 ? void 0 : roleInfo.maxMonthlyUsage) !== null && _b !== void 0 ? _b : 10000;
             return res.json({
                 key: apiKeyDoc.key,
                 role: apiKeyDoc.role,
                 requestCountMonth: apiKeyDoc.requestCountMonth,
                 requestCountStart: apiKeyDoc.requestCountStart,
                 lastUsedAt: apiKeyDoc.lastUsedAt,
+                maxMonthlyUsage: effectiveCap,
                 expiresAt: expiresAt || "Api key not used yet",
                 roleInfo,
             });
@@ -109,7 +120,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
         });
         // Main dashboard route - requires valid session
         router.get(dashboardPath, async (req, res) => {
-            var _a, _b, _c, _d, _e;
+            var _a, _b, _c, _d, _e, _f, _g;
             // Check for session-based authentication first
             let apiKey = await (0, dashboard_1.getSessionApiKey)(req, sessionOptions);
             // Fallback to header-based auth for API clients
@@ -127,13 +138,19 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 return res.redirect(`${dashboardPath}/login`);
             }
             const roleInfo = apiKeyDoc.role ? await RoleModel.findOne({ name: apiKeyDoc.role }) : null;
+            // Effective expiration: per-key expiresAt > daysValid calculation
             let keyExpiresAt = null;
-            const start = apiKeyDoc.requestCountStart;
-            if (start && apiKeyDoc.daysValid) {
-                keyExpiresAt = new Date(new Date(start).getTime() + apiKeyDoc.daysValid * 24 * 60 * 60 * 1000);
+            if (apiKeyDoc.expiresAt) {
+                keyExpiresAt = new Date(apiKeyDoc.expiresAt);
             }
             else {
-                keyExpiresAt = "Api key not used yet";
+                const start = apiKeyDoc.requestCountStart;
+                if (start && apiKeyDoc.daysValid) {
+                    keyExpiresAt = new Date(new Date(start).getTime() + apiKeyDoc.daysValid * 24 * 60 * 60 * 1000);
+                }
+                else {
+                    keyExpiresAt = "Api key not used yet";
+                }
             }
             // Convert roleInfo to plain object with allowedEndpoints
             const roleData = roleInfo ? roleInfo.toObject() : null;
@@ -146,22 +163,22 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 keyExpiresAt,
                 roleInfo: roleData ? {
                     name: roleData.name,
-                    maxMonthlyUsage: roleData.maxMonthlyUsage,
-                    minIntervalSeconds: roleData.minIntervalSeconds,
+                    maxMonthlyUsage: (_d = apiKeyDoc.maxMonthlyUsage) !== null && _d !== void 0 ? _d : roleData.maxMonthlyUsage,
+                    minIntervalSeconds: (_e = apiKeyDoc.minIntervalSeconds) !== null && _e !== void 0 ? _e : roleData.minIntervalSeconds,
                     allowedEndpoints: roleData.allowedEndpoints,
                 } : null,
-                daysValid: (_d = apiKeyDoc.daysValid) !== null && _d !== void 0 ? _d : null,
-                createdAt: (_e = apiKeyDoc.createdAt) !== null && _e !== void 0 ? _e : null,
+                daysValid: (_f = apiKeyDoc.daysValid) !== null && _f !== void 0 ? _f : null,
+                createdAt: (_g = apiKeyDoc.createdAt) !== null && _g !== void 0 ? _g : null,
             };
             // Compute additional dashboard metrics
             const computedData = (0, dashboard_1.computeDashboardData)(dashboardData);
             res.setHeader("Content-Type", "text/html");
-            return res.send((0, dashboard_1.renderDashboard)(computedData));
+            return res.send((0, dashboard_1.renderDashboard)(computedData, dashboardPath));
         });
     }
     // Main middleware
     const apiKeyAuthMiddleware = async function (req, res, next) {
-        var _a;
+        var _a, _b, _c;
         const apiKey = req.header(headerName);
         if (!apiKey) {
             return res.status(401).json({ error: "API key missing" });
@@ -171,8 +188,13 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
         if (!keyDoc) {
             return res.status(401).json({ error: "Invalid API key" });
         }
-        // Check expiration: daysValid from first use (requestCountStart)
-        if (typeof keyDoc.daysValid === "number") {
+        // Check expiration: prefer expiresAt (absolute) over daysValid (relative)
+        if (keyDoc.expiresAt) {
+            if (new Date() > new Date(keyDoc.expiresAt)) {
+                return res.status(401).json({ error: "API key expired" });
+            }
+        }
+        else if (typeof keyDoc.daysValid === "number") {
             const start = keyDoc.requestCountStart;
             if (start) {
                 const expiresAt = new Date(new Date(start).getTime() + keyDoc.daysValid * 24 * 60 * 60 * 1000);
@@ -204,14 +226,14 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 keyDoc.requestCountStart = now;
             }
         }
-        // Minimum interval between requests (from role config, fallback 2s)
-        const minInterval = typeof roleConfig.minIntervalSeconds === "number" ? roleConfig.minIntervalSeconds : 2;
+        // Minimum interval between requests (per-key override > role config > default 2s)
+        const minInterval = (_a = keyDoc.minIntervalSeconds) !== null && _a !== void 0 ? _a : (typeof roleConfig.minIntervalSeconds === "number" ? roleConfig.minIntervalSeconds : 2);
         if (keyDoc.lastUsedAt && now.getTime() - new Date(keyDoc.lastUsedAt).getTime() < minInterval * 1000) {
             return res.status(429).json({ error: `Requests must be at least ${minInterval} seconds apart` });
         }
-        // Monthly cap (from role config, fallback 10k)
-        const monthlyCap = typeof roleConfig.maxMonthlyUsage === "number" ? roleConfig.maxMonthlyUsage : 10000;
-        if (((_a = keyDoc.requestCountMonth) !== null && _a !== void 0 ? _a : 0) >= monthlyCap) {
+        // Monthly cap (per-key override > role config > default 10k)
+        const monthlyCap = (_b = keyDoc.maxMonthlyUsage) !== null && _b !== void 0 ? _b : (typeof roleConfig.maxMonthlyUsage === "number" ? roleConfig.maxMonthlyUsage : 10000);
+        if (((_c = keyDoc.requestCountMonth) !== null && _c !== void 0 ? _c : 0) >= monthlyCap) {
             return res.status(429).json({ error: "Monthly quota exceeded" });
         }
         // Endpoint authorization can be handled by route-level middleware (see allowRoles)
@@ -240,4 +262,53 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
     // Return a router that runs the middleware and exposes stats if enabled
     router.use(apiKeyAuthMiddleware);
     return router;
+}
+/**
+ * Creates a renewal function bound to a Mongoose connection.
+ * The returned function can be called from external services (e.g. payment webhook handlers)
+ * to safely extend a key's quota and expiration.
+ *
+ * @example
+ * ```ts
+ * const renewApiKey = createRenewalFunction(mongoose);
+ *
+ * // In a payment webhook handler:
+ * const renewed = await renewApiKey('user-api-key-here', {
+ *   additionalRequests: 500000,
+ *   additionalDays: 30,
+ * });
+ * ```
+ */
+function createRenewalFunction(mongoose) {
+    const ApiKeyModel = getOrCreateModel(mongoose, "ApiKey", ApiKey_1.ApiKeySchema);
+    return async function renewApiKey(key, options) {
+        var _a;
+        const apiKey = await ApiKeyModel.findOne({ key });
+        if (!apiKey)
+            return null;
+        const now = new Date();
+        const daysToAdd = (_a = options.additionalDays) !== null && _a !== void 0 ? _a : 30;
+        // Determine if the key is currently expired
+        let isExpired = false;
+        if (apiKey.expiresAt) {
+            isExpired = now > new Date(apiKey.expiresAt);
+        }
+        else if (apiKey.requestCountStart && apiKey.daysValid) {
+            const expiry = new Date(new Date(apiKey.requestCountStart).getTime() + apiKey.daysValid * 24 * 60 * 60 * 1000);
+            isExpired = now > expiry;
+        }
+        // Extend expiration: if expired extend from now, otherwise extend from current expiration
+        const baseDate = isExpired ? now : (apiKey.expiresAt ? new Date(apiKey.expiresAt) : now);
+        apiKey.expiresAt = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+        // Add requests to per-key quota (cumulative)
+        const currentMax = apiKey.maxMonthlyUsage || 0;
+        apiKey.maxMonthlyUsage = currentMax + options.additionalRequests;
+        // Reset usage if expired or explicitly requested
+        if (isExpired || options.resetUsageCount) {
+            apiKey.requestCountMonth = 0;
+            apiKey.requestCountStart = now;
+        }
+        await apiKey.save();
+        return apiKey;
+    };
 }

@@ -7,6 +7,9 @@ export interface IApiKey extends Document {
     lastUsedAt?: Date;
     requestCountMonth: number;
     requestCountStart?: Date;
+    maxMonthlyUsage?: number | null;
+    minIntervalSeconds?: number | null;
+    expiresAt?: Date | null;
 }
 export declare const ApiKeySchema: Schema<IApiKey, import("mongoose").Model<IApiKey, any, any, any, Document<unknown, any, IApiKey, any> & IApiKey & Required<{
     _id: unknown;

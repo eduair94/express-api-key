@@ -14,7 +14,10 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.createRenewalFunction = void 0;
 __exportStar(require("./middleware/allowRoles"), exports);
 __exportStar(require("./middleware/apiKeyAuth"), exports);
 __exportStar(require("./models/ApiKey"), exports);
 __exportStar(require("./models/Role"), exports);
+var apiKeyAuth_1 = require("./middleware/apiKeyAuth");
+Object.defineProperty(exports, "createRenewalFunction", { enumerable: true, get: function () { return apiKeyAuth_1.createRenewalFunction; } });
