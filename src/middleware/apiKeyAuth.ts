@@ -209,6 +209,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
         } : null,
         daysValid: apiKeyDoc.daysValid ?? null,
         createdAt: (apiKeyDoc as any).createdAt ?? null,
+        hasPerKeyQuota: !!apiKeyDoc.maxMonthlyUsage,
       };
 
       // Compute additional dashboard metrics
@@ -260,16 +261,25 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     }
 
     // Rolling 30-day quota tracking
-    if (!keyDoc.requestCountStart) {
+    // ONLY auto-reset for keys using role-based quotas (no per-key override).
+    // Keys with per-key maxMonthlyUsage have their quota managed exclusively
+    // via createRenewalFunction — they must NOT be auto-reset.
+    if (!keyDoc.maxMonthlyUsage) {
+      if (!keyDoc.requestCountStart) {
+        keyDoc.requestCountStart = now;
+        keyDoc.requestCountMonth = 0;
+      } else {
+        const start = new Date(keyDoc.requestCountStart);
+        const daysSinceStart = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSinceStart >= 30) {
+          keyDoc.requestCountMonth = 0;
+          keyDoc.requestCountStart = now;
+        }
+      }
+    } else if (!keyDoc.requestCountStart) {
+      // Per-key quota key used for the first time — set the start date but don't auto-reset later
       keyDoc.requestCountStart = now;
       keyDoc.requestCountMonth = 0;
-    } else {
-      const start = new Date(keyDoc.requestCountStart);
-      const daysSinceStart = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSinceStart >= 30) {
-        keyDoc.requestCountMonth = 0;
-        keyDoc.requestCountStart = now;
-      }
     }
 
     // Minimum interval between requests (per-key override > role config > default 2s)
@@ -347,6 +357,13 @@ export function createRenewalFunction(mongoose: Mongoose) {
   const ApiKeyModel = getOrCreateModel<IApiKey>(mongoose, "ApiKey", ApiKeySchema);
 
   return async function renewApiKey(key: string, options: RenewalOptions) {
+    if (!options.additionalRequests || options.additionalRequests <= 0) {
+      throw new Error('additionalRequests must be a positive number');
+    }
+    if (options.additionalDays !== undefined && options.additionalDays <= 0) {
+      throw new Error('additionalDays must be a positive number');
+    }
+
     const apiKey = await ApiKeyModel.findOne({ key });
     if (!apiKey) return null;
 

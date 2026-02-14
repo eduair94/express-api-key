@@ -244,8 +244,12 @@ function renderDashboard(data, dashboardPath = '/dashboard') {
         usageStatus: data.usageStatus,
         usageStatusText,
         // Renewal info
-        renewalDaysDisplay: data.renewalDays !== null ? data.renewalDays.toString() : '—',
-        renewalDateDisplay: data.renewalDate ? formatDateLong(data.renewalDate) : 'Not started yet',
+        renewalDaysDisplay: data.hasPerKeyQuota
+            ? '—'
+            : (data.renewalDays !== null ? data.renewalDays.toString() : '—'),
+        renewalDateDisplay: data.hasPerKeyQuota
+            ? 'Manual renewal only'
+            : (data.renewalDate ? formatDateLong(data.renewalDate) : 'Not started yet'),
         // Key expiration
         keyExpiringSoonBadge,
         keyExpiresDaysDisplay,

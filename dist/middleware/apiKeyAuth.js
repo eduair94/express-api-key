@@ -169,6 +169,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 } : null,
                 daysValid: (_f = apiKeyDoc.daysValid) !== null && _f !== void 0 ? _f : null,
                 createdAt: (_g = apiKeyDoc.createdAt) !== null && _g !== void 0 ? _g : null,
+                hasPerKeyQuota: !!apiKeyDoc.maxMonthlyUsage,
             };
             // Compute additional dashboard metrics
             const computedData = (0, dashboard_1.computeDashboardData)(dashboardData);
@@ -214,17 +215,27 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
             }
         }
         // Rolling 30-day quota tracking
-        if (!keyDoc.requestCountStart) {
+        // ONLY auto-reset for keys using role-based quotas (no per-key override).
+        // Keys with per-key maxMonthlyUsage have their quota managed exclusively
+        // via createRenewalFunction — they must NOT be auto-reset.
+        if (!keyDoc.maxMonthlyUsage) {
+            if (!keyDoc.requestCountStart) {
+                keyDoc.requestCountStart = now;
+                keyDoc.requestCountMonth = 0;
+            }
+            else {
+                const start = new Date(keyDoc.requestCountStart);
+                const daysSinceStart = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+                if (daysSinceStart >= 30) {
+                    keyDoc.requestCountMonth = 0;
+                    keyDoc.requestCountStart = now;
+                }
+            }
+        }
+        else if (!keyDoc.requestCountStart) {
+            // Per-key quota key used for the first time — set the start date but don't auto-reset later
             keyDoc.requestCountStart = now;
             keyDoc.requestCountMonth = 0;
-        }
-        else {
-            const start = new Date(keyDoc.requestCountStart);
-            const daysSinceStart = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
-            if (daysSinceStart >= 30) {
-                keyDoc.requestCountMonth = 0;
-                keyDoc.requestCountStart = now;
-            }
         }
         // Minimum interval between requests (per-key override > role config > default 2s)
         const minInterval = (_a = keyDoc.minIntervalSeconds) !== null && _a !== void 0 ? _a : (typeof roleConfig.minIntervalSeconds === "number" ? roleConfig.minIntervalSeconds : 2);
@@ -283,6 +294,12 @@ function createRenewalFunction(mongoose) {
     const ApiKeyModel = getOrCreateModel(mongoose, "ApiKey", ApiKey_1.ApiKeySchema);
     return async function renewApiKey(key, options) {
         var _a;
+        if (!options.additionalRequests || options.additionalRequests <= 0) {
+            throw new Error('additionalRequests must be a positive number');
+        }
+        if (options.additionalDays !== undefined && options.additionalDays <= 0) {
+            throw new Error('additionalDays must be a positive number');
+        }
         const apiKey = await ApiKeyModel.findOne({ key });
         if (!apiKey)
             return null;

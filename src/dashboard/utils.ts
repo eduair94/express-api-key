@@ -14,16 +14,19 @@ export function computeDashboardData(data: DashboardData): ComputedDashboardData
     roleInfo,
     daysValid,
     createdAt,
+    hasPerKeyQuota: perKeyQuota,
   } = data;
 
+  const hasPerKeyQuota = !!perKeyQuota;
   const monthlyCap = roleInfo?.maxMonthlyUsage ?? 10000;
   const usagePercent = Math.min(100, ((requestCountMonth ?? 0) / monthlyCap) * 100).toFixed(1);
   const remaining = Math.max(0, monthlyCap - (requestCountMonth ?? 0));
 
-  // Calculate renewal days
+  // Calculate renewal days — only for role-based quotas (auto-reset every 30 days).
+  // Per-key quota keys do NOT auto-reset; their quota is managed via renewApiKey.
   let renewalDays: number | null = null;
   let renewalDate: string | null = null;
-  if (requestCountStart) {
+  if (!hasPerKeyQuota && requestCountStart) {
     const start = new Date(requestCountStart);
     const renewAt = new Date(start.getTime() + 30 * 24 * 60 * 60 * 1000);
     renewalDate = renewAt.toISOString();
@@ -54,6 +57,7 @@ export function computeDashboardData(data: DashboardData): ComputedDashboardData
     roleInfo,
     daysValid,
     createdAt,
+    hasPerKeyQuota,
     monthlyCap,
     usagePercent,
     remaining,

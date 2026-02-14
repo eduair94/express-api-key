@@ -11,6 +11,8 @@ export interface DashboardData {
     roleInfo: RoleInfo | null;
     daysValid: number | null;
     createdAt: Date | null;
+    /** True when the key has a per-key maxMonthlyUsage override (no automatic quota reset) */
+    hasPerKeyQuota?: boolean;
 }
 export interface RoleInfo {
     name: string;
@@ -29,6 +31,7 @@ export interface ComputedDashboardData {
     roleInfo: RoleInfo | null;
     daysValid: number | null;
     createdAt: Date | null;
+    hasPerKeyQuota: boolean;
     monthlyCap: number;
     usagePercent: string;
     remaining: number;
