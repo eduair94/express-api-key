@@ -21,6 +21,11 @@ export interface RoleInfo {
   maxMonthlyUsage?: number;
   minIntervalSeconds?: number;
   allowedEndpoints?: string[];
+  responseLatency?: number;
+  timeout?: number;
+  concurrency?: number;
+  batchLimit?: number;
+  batchTTL?: number;
   [key: string]: any;
 }
 

@@ -10,6 +10,7 @@ import {
   initSessionStore,
   renderDashboard,
   renderLoginPage,
+  renderStatusPage,
   setSessionSecret
 } from "../dashboard";
 import { ApiKeySchema, IApiKey } from "../models/ApiKey";
@@ -28,6 +29,8 @@ export interface ApiKeyMiddlewareOptions {
   dashboardPath?: string; // Path for the dashboard UI (default: "/dashboard")
   sessionSecret?: string; // Secret for session signing (recommended to set in production)
   sessionExpiry?: number; // Session expiry in milliseconds (default: 24 hours)
+  exposeStatusPage?: boolean; // If true, expose a public status page showing role limits
+  statusPagePath?: string; // Path for the public status page (default: "/status")
 }
 
 export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options: ApiKeyMiddlewareOptions = {}) {
@@ -41,6 +44,8 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
   const exposeDashboard = options.exposeDashboard ?? false;
   const dashboardPath = options.dashboardPath || "/dashboard";
   const sessionExpiry = options.sessionExpiry ?? 24 * 60 * 60 * 1000; // 24 hours default
+  const exposeStatusPage = options.exposeStatusPage ?? false;
+  const statusPagePath = options.statusPagePath || "/status";
   const router = Router();
 
   // Set session secret if provided
@@ -217,6 +222,22 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
 
       res.setHeader("Content-Type", "text/html");
       return res.send(renderDashboard(computedData, dashboardPath));
+    });
+  }
+
+  // Public status page - no authentication required
+  if (exposeStatusPage) {
+    // Serve CSS for status page
+    router.get(`${statusPagePath}/css`, (req: Request, res: Response) => {
+      const cssPath = require('path').join(__dirname, '..', 'dashboard', 'templates', 'dashboard.css');
+      res.setHeader('Content-Type', 'text/css');
+      res.sendFile(cssPath);
+    });
+
+    router.get(statusPagePath, async (req: Request, res: Response) => {
+      const roles = await RoleModel.find({}).lean();
+      res.setHeader("Content-Type", "text/html");
+      return res.send(renderStatusPage(roles, statusPagePath));
     });
   }
 

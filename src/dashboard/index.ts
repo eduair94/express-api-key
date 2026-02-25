@@ -5,7 +5,7 @@
 export {
     renderApiKeyRequiredPage, renderDashboard,
     renderErrorPage, renderInvalidApiKeyPage,
-    renderLoginPage
+    renderLoginPage, renderStatusPage
 } from './renderer';
 export {
     SessionOptions, cleanupExpiredSessions, createSession, destroySession, getSessionApiKey, hasValidSession, initSessionStore,

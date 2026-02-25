@@ -4,6 +4,16 @@ export interface IRole extends Document {
     minIntervalSeconds?: number;
     maxMonthlyUsage?: number;
     allowedEndpoints?: string[];
+    /** Maximum response latency in milliseconds (informational, displayed on status page) */
+    responseLatency?: number;
+    /** Request timeout in seconds */
+    timeout?: number;
+    /** Maximum concurrent requests allowed */
+    concurrency?: number;
+    /** Maximum number of items per batch request */
+    batchLimit?: number;
+    /** Time-to-live for batch requests in seconds */
+    batchTTL?: number;
 }
 export declare const RoleSchema: Schema<IRole, import("mongoose").Model<IRole, any, any, any, Document<unknown, any, IRole, any> & IRole & Required<{
     _id: unknown;

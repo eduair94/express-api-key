@@ -27,3 +27,7 @@ export declare function renderLoginPage(options?: {
     error?: string;
     dashboardPath?: string;
 }): string;
+/**
+ * Renders the public status page showing all roles and their limits
+ */
+export declare function renderStatusPage(roles: Record<string, any>[], statusPagePath?: string): string;

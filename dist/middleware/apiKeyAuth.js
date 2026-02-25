@@ -14,7 +14,7 @@ function getOrCreateModel(mongoose, name, schema) {
     return mongoose.models[name] || mongoose.model(name, schema);
 }
 function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e;
     const ApiKeyModel = getOrCreateModel(mongoose, "ApiKey", ApiKey_1.ApiKeySchema);
     const RoleModel = getOrCreateModel(mongoose, "Role", Role_1.RoleSchema);
     const headerName = options.headerName || "x-api-key";
@@ -24,6 +24,8 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
     const exposeDashboard = (_c = options.exposeDashboard) !== null && _c !== void 0 ? _c : false;
     const dashboardPath = options.dashboardPath || "/dashboard";
     const sessionExpiry = (_d = options.sessionExpiry) !== null && _d !== void 0 ? _d : 24 * 60 * 60 * 1000; // 24 hours default
+    const exposeStatusPage = (_e = options.exposeStatusPage) !== null && _e !== void 0 ? _e : false;
+    const statusPagePath = options.statusPagePath || "/status";
     const router = (0, express_1.Router)();
     // Set session secret if provided
     if (options.sessionSecret) {
@@ -175,6 +177,20 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
             const computedData = (0, dashboard_1.computeDashboardData)(dashboardData);
             res.setHeader("Content-Type", "text/html");
             return res.send((0, dashboard_1.renderDashboard)(computedData, dashboardPath));
+        });
+    }
+    // Public status page - no authentication required
+    if (exposeStatusPage) {
+        // Serve CSS for status page
+        router.get(`${statusPagePath}/css`, (req, res) => {
+            const cssPath = require('path').join(__dirname, '..', 'dashboard', 'templates', 'dashboard.css');
+            res.setHeader('Content-Type', 'text/css');
+            res.sendFile(cssPath);
+        });
+        router.get(statusPagePath, async (req, res) => {
+            const roles = await RoleModel.find({}).lean();
+            res.setHeader("Content-Type", "text/html");
+            return res.send((0, dashboard_1.renderStatusPage)(roles, statusPagePath));
         });
     }
     // Main middleware
