@@ -404,32 +404,81 @@ function createRenewalFunction(mongoose) {
         if (options.additionalDays !== undefined && options.additionalDays <= 0) {
             throw new Error('additionalDays must be a positive number');
         }
-        const apiKey = await ApiKeyModel.findOne({ key });
-        if (!apiKey)
-            return null;
         const now = new Date();
         const daysToAdd = (_a = options.additionalDays) !== null && _a !== void 0 ? _a : 30;
-        // Determine if the key is currently expired
-        let isExpired = false;
-        if (apiKey.expiresAt) {
-            isExpired = now > new Date(apiKey.expiresAt);
-        }
-        else if (apiKey.requestCountStart && apiKey.daysValid) {
-            const expiry = new Date(new Date(apiKey.requestCountStart).getTime() + apiKey.daysValid * 24 * 60 * 60 * 1000);
-            isExpired = now > expiry;
-        }
-        // Extend expiration: if expired extend from now, otherwise extend from current expiration
-        const baseDate = isExpired ? now : (apiKey.expiresAt ? new Date(apiKey.expiresAt) : now);
-        apiKey.expiresAt = new Date(baseDate.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
-        // Add requests to per-key quota (cumulative)
-        const currentMax = apiKey.maxMonthlyUsage || 0;
-        apiKey.maxMonthlyUsage = currentMax + options.additionalRequests;
-        // Reset usage if expired or explicitly requested
-        if (isExpired || options.resetUsageCount) {
-            apiKey.requestCountMonth = 0;
-            apiKey.requestCountStart = now;
-        }
-        await apiKey.save();
-        return apiKey;
+        const additionalMs = daysToAdd * 24 * 60 * 60 * 1000;
+        const explicitReset = options.resetUsageCount === true;
+        const additionalRequests = options.additionalRequests;
+        // Atomic aggregation-pipeline update — eliminates lost-update race when
+        // two concurrent renewals (e.g. payment webhook retries) target the same key.
+        // Pipeline computes the effective current expiry, decides if the key is
+        // expired, then sets the new expiry/quota in a single document operation.
+        const updated = await ApiKeyModel.findOneAndUpdate({ key }, [
+            {
+                $set: {
+                    // Effective current expiry: explicit expiresAt > daysValid calc > now
+                    _currentExpiry: {
+                        $cond: {
+                            if: { $ne: [{ $ifNull: ['$expiresAt', null] }, null] },
+                            then: '$expiresAt',
+                            else: {
+                                $cond: {
+                                    if: {
+                                        $and: [
+                                            { $ne: [{ $ifNull: ['$requestCountStart', null] }, null] },
+                                            { $ne: [{ $ifNull: ['$daysValid', null] }, null] },
+                                        ],
+                                    },
+                                    then: {
+                                        $add: [
+                                            '$requestCountStart',
+                                            { $multiply: ['$daysValid', 24 * 60 * 60 * 1000] },
+                                        ],
+                                    },
+                                    else: now,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                $set: {
+                    _isExpired: { $gt: [now, '$_currentExpiry'] },
+                },
+            },
+            {
+                $set: {
+                    // Expired → extend from now. Active → extend from current effective expiry
+                    // (preserves remaining time on daysValid-only keys).
+                    expiresAt: {
+                        $cond: {
+                            if: '$_isExpired',
+                            then: new Date(now.getTime() + additionalMs),
+                            else: { $add: ['$_currentExpiry', additionalMs] },
+                        },
+                    },
+                    maxMonthlyUsage: {
+                        $add: [{ $ifNull: ['$maxMonthlyUsage', 0] }, additionalRequests],
+                    },
+                    requestCountMonth: {
+                        $cond: {
+                            if: { $or: ['$_isExpired', explicitReset] },
+                            then: 0,
+                            else: '$requestCountMonth',
+                        },
+                    },
+                    requestCountStart: {
+                        $cond: {
+                            if: { $or: ['$_isExpired', explicitReset] },
+                            then: now,
+                            else: '$requestCountStart',
+                        },
+                    },
+                },
+            },
+            { $unset: ['_currentExpiry', '_isExpired'] },
+        ], { new: true });
+        return updated;
     };
 }
