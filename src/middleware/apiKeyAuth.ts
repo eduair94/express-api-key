@@ -2,16 +2,16 @@ import cookieParser from "cookie-parser";
 import { NextFunction, Request, Response, Router, json, urlencoded } from "express";
 import { Model, Mongoose, Schema } from "mongoose";
 import {
-  DashboardData,
-  computeDashboardData,
-  createSession,
-  destroySession,
-  getSessionApiKey,
-  initSessionStore,
-  renderDashboard,
-  renderLoginPage,
-  renderStatusPage,
-  setSessionSecret
+    DashboardData,
+    computeDashboardData,
+    createSession,
+    destroySession,
+    getSessionApiKey,
+    initSessionStore,
+    renderDashboard,
+    renderLoginPage,
+    renderStatusPage,
+    setSessionSecret
 } from "../dashboard";
 import { ApiKeySchema, IApiKey } from "../models/ApiKey";
 import { RoleSchema } from "../models/Role";
@@ -19,6 +19,18 @@ import { RoleSchema } from "../models/Role";
 function getOrCreateModel<T extends object>(mongoose: Mongoose, name: string, schema: Schema<T>): Model<T> {
   return mongoose.models[name] || mongoose.model<T>(name, schema);
 }
+
+/**
+ * In-memory rate limit map: apiKey → last accepted request timestamp (ms).
+ *
+ * Because Node.js executes synchronous code on a single thread, checking
+ * and setting this map is atomic — no two concurrent requests can both
+ * read a stale value.  This eliminates the TOCTOU race condition that
+ * exists when relying solely on a MongoDB read-then-check pattern.
+ *
+ * Memory is bounded by the number of unique API keys (one number per key).
+ */
+const rateLimitMap = new Map<string, number>();
 
 export interface ApiKeyMiddlewareOptions {
   headerName?: string;
@@ -82,7 +94,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
         expiresAt = new Date(apiKeyDoc.expiresAt);
       } else {
         const start = apiKeyDoc.requestCountStart;
-        if (start) {
+        if (start && typeof apiKeyDoc.daysValid === "number") {
           expiresAt = new Date(new Date(start).getTime() + apiKeyDoc.daysValid * 24 * 60 * 60 * 1000);
         }
       }
@@ -92,14 +104,58 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
         ?? roleInfo?.maxMonthlyUsage
         ?? 10000;
 
+      // Quota reset window: only role-based keys auto-reset every 30d.
+      // Per-key paid quotas never auto-reset → resetAt is null.
+      let resetAt: Date | null = null;
+      if (!apiKeyDoc.maxMonthlyUsage && apiKeyDoc.requestCountStart) {
+        resetAt = new Date(
+          new Date(apiKeyDoc.requestCountStart).getTime() + 30 * 24 * 60 * 60 * 1000
+        );
+      }
+
+      // Status state machine — separate from timestamp
+      const now = new Date();
+      let status: "unused" | "active" | "expired" = "active";
+      if (!apiKeyDoc.requestCountStart) {
+        status = "unused";
+      } else if (expiresAt && now > expiresAt) {
+        status = "expired";
+      }
+
+      const requestRemaining = Math.max(0, effectiveCap - (apiKeyDoc.requestCountMonth ?? 0));
+
+      // Seconds-until-reset (RapidAPI convention). Null when N/A.
+      const requestReset = resetAt
+        ? Math.max(0, Math.floor((resetAt.getTime() - now.getTime()) / 1000))
+        : null;
+
+      // Mirror RapidAPI headers so consumers can use one code path
+      res.setHeader("x-ratelimit-requests-limit", String(effectiveCap));
+      res.setHeader("x-ratelimit-requests-remaining", String(requestRemaining));
+      if (requestReset !== null) {
+        res.setHeader("x-ratelimit-requests-reset", String(requestReset));
+      }
+
       return res.json({
         key: apiKeyDoc.key,
         role: apiKeyDoc.role,
-        requestCountMonth: apiKeyDoc.requestCountMonth,
-        requestCountStart: apiKeyDoc.requestCountStart,
-        lastUsedAt: apiKeyDoc.lastUsedAt,
+        status,
+        // New canonical fields — always typed consistently
+        requestLimit: effectiveCap,
+        requestRemaining,
+        requestReset,                                       // seconds | null
+        resetAt: resetAt ? resetAt.toISOString() : null,    // ISO | null
+        expiresAt: expiresAt ? expiresAt.toISOString() : null, // ISO | null
+        lastUsedAt: apiKeyDoc.lastUsedAt
+          ? new Date(apiKeyDoc.lastUsedAt).toISOString()
+          : null,
+        requestCountMonth: apiKeyDoc.requestCountMonth ?? 0,
+        requestCountStart: apiKeyDoc.requestCountStart
+          ? new Date(apiKeyDoc.requestCountStart).toISOString()
+          : null,
+        // Legacy field kept for back-compat with old consumers.
+        // Same type as expiresAt above (no human-text sentinel).
         maxMonthlyUsage: effectiveCap,
-        expiresAt: expiresAt || "Api key not used yet",
         roleInfo,
       });
     });
@@ -285,20 +341,34 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     // ONLY auto-reset for keys using role-based quotas (no per-key override).
     // Keys with per-key maxMonthlyUsage have their quota managed exclusively
     // via createRenewalFunction — they must NOT be auto-reset.
+    // Resets are persisted immediately with an atomic updateOne so that
+    // the finish callback can use a simple $inc without stale data.
     if (!keyDoc.maxMonthlyUsage) {
       if (!keyDoc.requestCountStart) {
+        await ApiKeyModel.updateOne(
+          { key: apiKey },
+          { $set: { requestCountStart: now, requestCountMonth: 0 } },
+        );
         keyDoc.requestCountStart = now;
         keyDoc.requestCountMonth = 0;
       } else {
         const start = new Date(keyDoc.requestCountStart);
         const daysSinceStart = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
         if (daysSinceStart >= 30) {
+          await ApiKeyModel.updateOne(
+            { key: apiKey },
+            { $set: { requestCountMonth: 0, requestCountStart: now } },
+          );
           keyDoc.requestCountMonth = 0;
           keyDoc.requestCountStart = now;
         }
       }
     } else if (!keyDoc.requestCountStart) {
       // Per-key quota key used for the first time — set the start date but don't auto-reset later
+      await ApiKeyModel.updateOne(
+        { key: apiKey },
+        { $set: { requestCountStart: now, requestCountMonth: 0 } },
+      );
       keyDoc.requestCountStart = now;
       keyDoc.requestCountMonth = 0;
     }
@@ -306,13 +376,63 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     // Minimum interval between requests (per-key override > role config > default 2s)
     const minInterval = keyDoc.minIntervalSeconds
       ?? (typeof roleConfig.minIntervalSeconds === "number" ? roleConfig.minIntervalSeconds : 2);
-    if (keyDoc.lastUsedAt && now.getTime() - new Date(keyDoc.lastUsedAt).getTime() < minInterval * 1000) {
+
+    // --- In-memory rate limit (Option B) ---
+    // Synchronous check + set: immune to TOCTOU because Node.js is
+    // single-threaded for synchronous code — no concurrent request can
+    // read the map between our check and our set.
+    const lastInMemory = rateLimitMap.get(apiKey!);
+    if (lastInMemory && (now.getTime() - lastInMemory) < minInterval * 1000) {
+      return res.status(429).json({ error: `Requests must be at least ${minInterval} seconds apart` });
+    }
+    rateLimitMap.set(apiKey!, now.getTime());
+
+    // --- Atomic DB rate limit (Option A) ---
+    // Even though the in-memory check covers single-process deployments,
+    // this atomic findOneAndUpdate protects multi-process / cluster setups
+    // where separate Node.js processes don't share memory.
+    const minIntervalMs = minInterval * 1000;
+    const earliestAllowed = new Date(now.getTime() - minIntervalMs);
+    const rateLimitResult = await ApiKeyModel.findOneAndUpdate(
+      {
+        key: apiKey,
+        $or: [
+          { lastUsedAt: { $exists: false } },
+          { lastUsedAt: null },
+          { lastUsedAt: { $lte: earliestAllowed } },
+        ],
+      },
+      { $set: { lastUsedAt: now } },
+      { new: true },
+    );
+    if (!rateLimitResult) {
+      // Revert in-memory timestamp so the next request re-checks cleanly
+      if (lastInMemory !== undefined) {
+        rateLimitMap.set(apiKey!, lastInMemory);
+      } else {
+        rateLimitMap.delete(apiKey!);
+      }
       return res.status(429).json({ error: `Requests must be at least ${minInterval} seconds apart` });
     }
 
     // Monthly cap (per-key override > role config > default 10k)
     const monthlyCap = keyDoc.maxMonthlyUsage
       ?? (typeof roleConfig.maxMonthlyUsage === "number" ? roleConfig.maxMonthlyUsage : 10000);
+
+    // Mirror RapidAPI rate-limit headers on every authenticated response.
+    // Lets proxy/clients use one code path (header-driven) and skip parsing JSON.
+    const remainingBeforeInc = Math.max(0, monthlyCap - (keyDoc.requestCountMonth ?? 0));
+    let resetSecondsHeader: number | null = null;
+    if (!keyDoc.maxMonthlyUsage && keyDoc.requestCountStart) {
+      const resetMs = new Date(keyDoc.requestCountStart).getTime() + 30 * 24 * 60 * 60 * 1000;
+      resetSecondsHeader = Math.max(0, Math.floor((resetMs - now.getTime()) / 1000));
+    }
+    res.setHeader("x-ratelimit-requests-limit", String(monthlyCap));
+    res.setHeader("x-ratelimit-requests-remaining", String(remainingBeforeInc));
+    if (resetSecondsHeader !== null) {
+      res.setHeader("x-ratelimit-requests-reset", String(resetSecondsHeader));
+    }
+
     if ((keyDoc.requestCountMonth ?? 0) >= monthlyCap) {
       return res.status(429).json({ error: "Monthly quota exceeded" });
     }
@@ -322,20 +442,16 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     // Attach key info to request for downstream use
     (req as any).apiKeyDoc = keyDoc;
 
-    // Increment requestCountMonth based on countOnly200 option
+    // Increment requestCountMonth based on countOnly200 option.
+    // Uses atomic $inc to avoid overwriting the lastUsedAt that was
+    // already set by the atomic findOneAndUpdate above.
     res.on("finish", async () => {
-      if (countOnly200) {
-        // Only count successful (200) requests
-        if (res.statusCode === 200) {
-          keyDoc.requestCountMonth = (keyDoc.requestCountMonth ?? 0) + 1;
-          keyDoc.lastUsedAt = now;
-          await keyDoc.save();
-        }
-      } else {
-        // Count all requests regardless of status code
-        keyDoc.requestCountMonth = (keyDoc.requestCountMonth ?? 0) + 1;
-        keyDoc.lastUsedAt = now;
-        await keyDoc.save();
+      const shouldCount = countOnly200 ? res.statusCode === 200 : true;
+      if (shouldCount) {
+        await ApiKeyModel.updateOne(
+          { key: apiKey },
+          { $inc: { requestCountMonth: 1 } },
+        );
       }
     });
     next();
