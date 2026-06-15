@@ -347,6 +347,59 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
       res.setHeader("Content-Type", "text/html");
       return res.send(renderDashboard(computedData, dashboardPath));
     });
+
+    if (subscriptionsEnabled) {
+      router.post(`${dashboardPath}/subscription/change`, async (req: Request, res: Response) => {
+        const apiKey = await getSessionApiKey(req, sessionOptions);
+        if (!apiKey) return res.redirect(`${dashboardPath}/login`);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        try {
+          const r = await fetch(`${subscriptionApiBaseUrl}/api/subscription/change`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-secret": subscriptionInternalSecret,
+              "x-api-key": apiKey,
+            },
+            body: JSON.stringify({ requestsAmount: Number(req.body?.requestsAmount) }),
+            signal: controller.signal,
+          });
+          const j = (await r.json()) as { approveUrl?: string | null };
+          // Price increases require PayPal re-approval: send the buyer there.
+          if (j && j.approveUrl) return res.redirect(j.approveUrl);
+        } catch {
+          // fall through to dashboard
+        } finally {
+          clearTimeout(timeout);
+        }
+        return res.redirect(dashboardPath);
+      });
+
+      router.post(`${dashboardPath}/subscription/cancel`, async (req: Request, res: Response) => {
+        const apiKey = await getSessionApiKey(req, sessionOptions);
+        if (!apiKey) return res.redirect(`${dashboardPath}/login`);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        try {
+          await fetch(`${subscriptionApiBaseUrl}/api/subscription/cancel`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-internal-secret": subscriptionInternalSecret,
+              "x-api-key": apiKey,
+            },
+            body: "{}",
+            signal: controller.signal,
+          });
+        } catch {
+          // ignore — webhook applies grace; user can retry
+        } finally {
+          clearTimeout(timeout);
+        }
+        return res.redirect(dashboardPath);
+      });
+    }
   }
 
   // Public status page - no authentication required
