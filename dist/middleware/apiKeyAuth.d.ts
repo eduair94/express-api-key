@@ -11,6 +11,12 @@ export interface ApiKeyMiddlewareOptions {
     sessionExpiry?: number;
     exposeStatusPage?: boolean;
     statusPagePath?: string;
+    /** Enable the customer Subscription panel + manage routes on the dashboard. */
+    subscriptionsEnabled?: boolean;
+    /** Base URL of the paylix-subscription API (e.g. https://whatsapp-sub.checkleaked.com). */
+    subscriptionApiBaseUrl?: string;
+    /** Shared secret sent as x-internal-secret to the subscription API. */
+    subscriptionInternalSecret?: string;
 }
 export declare function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options?: ApiKeyMiddlewareOptions): import("express-serve-static-core").Router;
 /**

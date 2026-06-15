@@ -8,10 +8,36 @@ exports.createRenewalFunction = createRenewalFunction;
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const express_1 = require("express");
 const dashboard_1 = require("../dashboard");
+const subscriptionPanel_1 = require("../dashboard/subscriptionPanel");
 const ApiKey_1 = require("../models/ApiKey");
 const Role_1 = require("../models/Role");
 function getOrCreateModel(mongoose, name, schema) {
     return mongoose.models[name] || mongoose.model(name, schema);
+}
+async function fetchSubscriptionPanel(baseUrl, internalSecret, apiKey, dashboardPath) {
+    if (!baseUrl)
+        return "";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+        const res = await fetch(`${baseUrl}/api/subscription/status`, {
+            method: "GET",
+            headers: { "x-internal-secret": internalSecret, "x-api-key": apiKey },
+            signal: controller.signal,
+        });
+        if (!res.ok)
+            return "";
+        const json = (await res.json());
+        if (!json.success || !json.data)
+            return "";
+        return (0, subscriptionPanel_1.renderSubscriptionPanel)(json.data, dashboardPath);
+    }
+    catch (_a) {
+        return ""; // network error, timeout/abort, or bad JSON — never break the dashboard
+    }
+    finally {
+        clearTimeout(timeout);
+    }
 }
 /**
  * In-memory rate limit map: apiKey → last accepted request timestamp (ms).
@@ -25,7 +51,7 @@ function getOrCreateModel(mongoose, name, schema) {
  */
 const rateLimitMap = new Map();
 function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     const ApiKeyModel = getOrCreateModel(mongoose, "ApiKey", ApiKey_1.ApiKeySchema);
     const RoleModel = getOrCreateModel(mongoose, "Role", Role_1.RoleSchema);
     const headerName = options.headerName || "x-api-key";
@@ -37,6 +63,12 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
     const sessionExpiry = (_d = options.sessionExpiry) !== null && _d !== void 0 ? _d : 24 * 60 * 60 * 1000; // 24 hours default
     const exposeStatusPage = (_e = options.exposeStatusPage) !== null && _e !== void 0 ? _e : false;
     const statusPagePath = options.statusPagePath || "/status";
+    const subscriptionsEnabled = (_f = options.subscriptionsEnabled) !== null && _f !== void 0 ? _f : false;
+    const subscriptionApiBaseUrl = (options.subscriptionApiBaseUrl || "").replace(/\/+$/, "");
+    const subscriptionInternalSecret = options.subscriptionInternalSecret || "";
+    if (subscriptionsEnabled && !subscriptionApiBaseUrl) {
+        console.warn("[express-api-key] subscriptionsEnabled is true but subscriptionApiBaseUrl is empty — the Subscription panel will not render.");
+    }
     const router = (0, express_1.Router)();
     // Set session secret if provided
     if (options.sessionSecret) {
@@ -224,9 +256,71 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
             };
             // Compute additional dashboard metrics
             const computedData = (0, dashboard_1.computeDashboardData)(dashboardData);
+            if (subscriptionsEnabled) {
+                computedData.subscriptionSection = await fetchSubscriptionPanel(subscriptionApiBaseUrl, subscriptionInternalSecret, apiKey, dashboardPath);
+            }
             res.setHeader("Content-Type", "text/html");
             return res.send((0, dashboard_1.renderDashboard)(computedData, dashboardPath));
         });
+        if (subscriptionsEnabled) {
+            router.post(`${dashboardPath}/subscription/change`, async (req, res) => {
+                var _a;
+                const apiKey = await (0, dashboard_1.getSessionApiKey)(req, sessionOptions);
+                if (!apiKey)
+                    return res.redirect(`${dashboardPath}/login`);
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 10000);
+                try {
+                    const r = await fetch(`${subscriptionApiBaseUrl}/api/subscription/change`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-internal-secret": subscriptionInternalSecret,
+                            "x-api-key": apiKey,
+                        },
+                        body: JSON.stringify({ requestsAmount: Number((_a = req.body) === null || _a === void 0 ? void 0 : _a.requestsAmount) }),
+                        signal: controller.signal,
+                    });
+                    const j = (await r.json());
+                    // Price increases require PayPal re-approval: send the buyer there.
+                    if (j && j.approveUrl)
+                        return res.redirect(j.approveUrl);
+                }
+                catch (_b) {
+                    // fall through to dashboard
+                }
+                finally {
+                    clearTimeout(timeout);
+                }
+                return res.redirect(dashboardPath);
+            });
+            router.post(`${dashboardPath}/subscription/cancel`, async (req, res) => {
+                const apiKey = await (0, dashboard_1.getSessionApiKey)(req, sessionOptions);
+                if (!apiKey)
+                    return res.redirect(`${dashboardPath}/login`);
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 10000);
+                try {
+                    await fetch(`${subscriptionApiBaseUrl}/api/subscription/cancel`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "x-internal-secret": subscriptionInternalSecret,
+                            "x-api-key": apiKey,
+                        },
+                        body: "{}",
+                        signal: controller.signal,
+                    });
+                }
+                catch (_a) {
+                    // ignore — webhook applies grace; user can retry
+                }
+                finally {
+                    clearTimeout(timeout);
+                }
+                return res.redirect(dashboardPath);
+            });
+        }
     }
     // Public status page - no authentication required
     if (exposeStatusPage) {

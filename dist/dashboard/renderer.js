@@ -208,7 +208,7 @@ function formatDateLong(date) {
  * Renders the main dashboard HTML
  */
 function renderDashboard(data, dashboardPath = '/dashboard') {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const template = loadTemplate('dashboard.html');
     // Prepare template variables
     const keyStatusText = data.keyExpiresDays !== null
@@ -265,6 +265,7 @@ function renderDashboard(data, dashboardPath = '/dashboard') {
         // Dynamic sections
         allowedEndpointsSection: generateAllowedEndpointsSection((_c = data.roleInfo) === null || _c === void 0 ? void 0 : _c.allowedEndpoints),
         insightsContent: generateInsightsContent(data),
+        subscriptionSection: (_d = data.subscriptionSection) !== null && _d !== void 0 ? _d : '',
         // Footer
         lastUpdated: new Date().toLocaleString(),
     };
