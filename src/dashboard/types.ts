@@ -14,6 +14,8 @@ export interface DashboardData {
   createdAt: Date | null;
   /** True when the key has a per-key maxMonthlyUsage override (no automatic quota reset) */
   hasPerKeyQuota?: boolean;
+  /** Pre-rendered subscription section HTML (empty string when none). */
+  subscriptionSection?: string;
 }
 
 export interface RoleInfo {
@@ -51,4 +53,6 @@ export interface ComputedDashboardData {
   keyExpiresDays: number | null;
   usageStatus: 'healthy' | 'warning' | 'critical';
   keyStatus: 'healthy' | 'warning' | 'critical';
+  /** Pre-rendered subscription section HTML (empty string when none). */
+  subscriptionSection?: string;
 }

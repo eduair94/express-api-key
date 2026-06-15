@@ -251,6 +251,7 @@ export function renderDashboard(data: ComputedDashboardData, dashboardPath: stri
     // Dynamic sections
     allowedEndpointsSection: generateAllowedEndpointsSection(data.roleInfo?.allowedEndpoints),
     insightsContent: generateInsightsContent(data),
+    subscriptionSection: data.subscriptionSection ?? '',
 
     // Footer
     lastUpdated: new Date().toLocaleString(),
