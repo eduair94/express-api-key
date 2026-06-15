@@ -13,11 +13,39 @@ import {
     renderStatusPage,
     setSessionSecret
 } from "../dashboard";
+import { renderSubscriptionPanel, SubscriptionPanelData } from "../dashboard/subscriptionPanel";
 import { ApiKeySchema, IApiKey } from "../models/ApiKey";
 import { RoleSchema } from "../models/Role";
 
+// Minimal fetch declaration for Node 20 global fetch (not in ES2018 lib).
+declare const fetch: (
+  input: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string },
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
 function getOrCreateModel<T extends object>(mongoose: Mongoose, name: string, schema: Schema<T>): Model<T> {
   return mongoose.models[name] || mongoose.model<T>(name, schema);
+}
+
+async function fetchSubscriptionPanel(
+  baseUrl: string,
+  internalSecret: string,
+  apiKey: string,
+  dashboardPath: string,
+): Promise<string> {
+  if (!baseUrl) return "";
+  try {
+    const res = await fetch(`${baseUrl}/api/subscription/status`, {
+      method: "GET",
+      headers: { "x-internal-secret": internalSecret, "x-api-key": apiKey },
+    });
+    if (!res.ok) return "";
+    const json = (await res.json()) as { success?: boolean; data?: SubscriptionPanelData };
+    if (!json.success || !json.data) return "";
+    return renderSubscriptionPanel(json.data, dashboardPath);
+  } catch {
+    return ""; // never break the dashboard if the subscription API is down
+  }
 }
 
 /**
@@ -43,6 +71,12 @@ export interface ApiKeyMiddlewareOptions {
   sessionExpiry?: number; // Session expiry in milliseconds (default: 24 hours)
   exposeStatusPage?: boolean; // If true, expose a public status page showing role limits
   statusPagePath?: string; // Path for the public status page (default: "/status")
+  /** Enable the customer Subscription panel + manage routes on the dashboard. */
+  subscriptionsEnabled?: boolean;
+  /** Base URL of the paylix-subscription API (e.g. https://whatsapp-sub.checkleaked.com). */
+  subscriptionApiBaseUrl?: string;
+  /** Shared secret sent as x-internal-secret to the subscription API. */
+  subscriptionInternalSecret?: string;
 }
 
 export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options: ApiKeyMiddlewareOptions = {}) {
@@ -58,6 +92,9 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
   const sessionExpiry = options.sessionExpiry ?? 24 * 60 * 60 * 1000; // 24 hours default
   const exposeStatusPage = options.exposeStatusPage ?? false;
   const statusPagePath = options.statusPagePath || "/status";
+  const subscriptionsEnabled = options.subscriptionsEnabled ?? false;
+  const subscriptionApiBaseUrl = (options.subscriptionApiBaseUrl || "").replace(/\/+$/, "");
+  const subscriptionInternalSecret = options.subscriptionInternalSecret || "";
   const router = Router();
 
   // Set session secret if provided
@@ -275,6 +312,14 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
 
       // Compute additional dashboard metrics
       const computedData = computeDashboardData(dashboardData);
+      if (subscriptionsEnabled) {
+        computedData.subscriptionSection = await fetchSubscriptionPanel(
+          subscriptionApiBaseUrl,
+          subscriptionInternalSecret,
+          apiKey,
+          dashboardPath,
+        );
+      }
 
       res.setHeader("Content-Type", "text/html");
       return res.send(renderDashboard(computedData, dashboardPath));
