@@ -20,8 +20,19 @@ import { RoleSchema } from "../models/Role";
 // Minimal fetch declaration for Node 20 global fetch (not in ES2018 lib).
 declare const fetch: (
   input: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string },
+  init?: {
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    signal?: unknown
+  },
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
+// Minimal AbortController declaration for Node 20 (not in ES2018 lib).
+declare class AbortController {
+  signal: unknown;
+  abort(): void;
+}
 
 function getOrCreateModel<T extends object>(mongoose: Mongoose, name: string, schema: Schema<T>): Model<T> {
   return mongoose.models[name] || mongoose.model<T>(name, schema);
@@ -34,17 +45,22 @@ async function fetchSubscriptionPanel(
   dashboardPath: string,
 ): Promise<string> {
   if (!baseUrl) return "";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
     const res = await fetch(`${baseUrl}/api/subscription/status`, {
       method: "GET",
       headers: { "x-internal-secret": internalSecret, "x-api-key": apiKey },
+      signal: controller.signal,
     });
     if (!res.ok) return "";
     const json = (await res.json()) as { success?: boolean; data?: SubscriptionPanelData };
     if (!json.success || !json.data) return "";
     return renderSubscriptionPanel(json.data, dashboardPath);
   } catch {
-    return ""; // never break the dashboard if the subscription API is down
+    return ""; // network error, timeout/abort, or bad JSON — never break the dashboard
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -95,6 +111,13 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
   const subscriptionsEnabled = options.subscriptionsEnabled ?? false;
   const subscriptionApiBaseUrl = (options.subscriptionApiBaseUrl || "").replace(/\/+$/, "");
   const subscriptionInternalSecret = options.subscriptionInternalSecret || "";
+
+  if (subscriptionsEnabled && !subscriptionApiBaseUrl) {
+    console.warn(
+      "[express-api-key] subscriptionsEnabled is true but subscriptionApiBaseUrl is empty — the Subscription panel will not render.",
+    );
+  }
+
   const router = Router();
 
   // Set session secret if provided
