@@ -207,7 +207,7 @@ function formatDateLong(date) {
 /**
  * Renders the main dashboard HTML
  */
-function renderDashboard(data, dashboardPath = '/dashboard') {
+function renderDashboard(data, dashboardPath = '/dashboard', docsUrl = '/docs') {
     var _a, _b, _c, _d;
     const template = loadTemplate('dashboard.html');
     // Prepare template variables
@@ -232,6 +232,7 @@ function renderDashboard(data, dashboardPath = '/dashboard') {
         // Paths
         logoutPath: `${dashboardPath}/logout`,
         cssPath: `${dashboardPath}/css`,
+        docsUrl: escapeHtml(docsUrl),
         // API Key info
         key: escapeHtml(data.key),
         role: escapeHtml(data.role),

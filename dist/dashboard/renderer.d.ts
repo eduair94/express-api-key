@@ -2,7 +2,7 @@ import { ComputedDashboardData } from './types';
 /**
  * Renders the main dashboard HTML
  */
-export declare function renderDashboard(data: ComputedDashboardData, dashboardPath?: string): string;
+export declare function renderDashboard(data: ComputedDashboardData, dashboardPath?: string, docsUrl?: string): string;
 /**
  * Renders an error page
  */

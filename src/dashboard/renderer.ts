@@ -181,7 +181,11 @@ function formatDateLong(date: Date | string | null): string {
 /**
  * Renders the main dashboard HTML
  */
-export function renderDashboard(data: ComputedDashboardData, dashboardPath: string = '/dashboard'): string {
+export function renderDashboard(
+  data: ComputedDashboardData,
+  dashboardPath: string = '/dashboard',
+  docsUrl: string = '/docs',
+): string {
   const template = loadTemplate('dashboard.html');
 
   // Prepare template variables
@@ -211,6 +215,7 @@ export function renderDashboard(data: ComputedDashboardData, dashboardPath: stri
     // Paths
     logoutPath: `${dashboardPath}/logout`,
     cssPath: `${dashboardPath}/css`,
+    docsUrl: escapeHtml(docsUrl),
 
     // API Key info
     key: escapeHtml(data.key),

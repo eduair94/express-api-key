@@ -7,6 +7,7 @@ export interface ApiKeyMiddlewareOptions {
     countOnly200?: boolean;
     exposeDashboard?: boolean;
     dashboardPath?: string;
+    docsUrl?: string;
     sessionSecret?: string;
     sessionExpiry?: number;
     exposeStatusPage?: boolean;

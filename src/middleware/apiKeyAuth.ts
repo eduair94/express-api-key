@@ -83,6 +83,7 @@ export interface ApiKeyMiddlewareOptions {
   countOnly200?: boolean; // If true, only count requests with 200 status code (default: true)
   exposeDashboard?: boolean; // If true, expose a UI dashboard at dashboardPath
   dashboardPath?: string; // Path for the dashboard UI (default: "/dashboard")
+  docsUrl?: string; // API documentation URL linked from the dashboard (default: "/docs")
   sessionSecret?: string; // Secret for session signing (recommended to set in production)
   sessionExpiry?: number; // Session expiry in milliseconds (default: 24 hours)
   exposeStatusPage?: boolean; // If true, expose a public status page showing role limits
@@ -105,6 +106,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
   const countOnly200 = options.countOnly200 ?? true; // Default to only counting 200 status
   const exposeDashboard = options.exposeDashboard ?? false;
   const dashboardPath = options.dashboardPath || "/dashboard";
+  const docsUrl = options.docsUrl || "/docs";
   const sessionExpiry = options.sessionExpiry ?? 24 * 60 * 60 * 1000; // 24 hours default
   const exposeStatusPage = options.exposeStatusPage ?? false;
   const statusPagePath = options.statusPagePath || "/status";
@@ -345,7 +347,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
       }
 
       res.setHeader("Content-Type", "text/html");
-      return res.send(renderDashboard(computedData, dashboardPath));
+      return res.send(renderDashboard(computedData, dashboardPath, docsUrl));
     });
 
     if (subscriptionsEnabled) {

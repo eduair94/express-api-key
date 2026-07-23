@@ -60,6 +60,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
     const countOnly200 = (_b = options.countOnly200) !== null && _b !== void 0 ? _b : true; // Default to only counting 200 status
     const exposeDashboard = (_c = options.exposeDashboard) !== null && _c !== void 0 ? _c : false;
     const dashboardPath = options.dashboardPath || "/dashboard";
+    const docsUrl = options.docsUrl || "/docs";
     const sessionExpiry = (_d = options.sessionExpiry) !== null && _d !== void 0 ? _d : 24 * 60 * 60 * 1000; // 24 hours default
     const exposeStatusPage = (_e = options.exposeStatusPage) !== null && _e !== void 0 ? _e : false;
     const statusPagePath = options.statusPagePath || "/status";
@@ -260,7 +261,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 computedData.subscriptionSection = await fetchSubscriptionPanel(subscriptionApiBaseUrl, subscriptionInternalSecret, apiKey, dashboardPath);
             }
             res.setHeader("Content-Type", "text/html");
-            return res.send((0, dashboard_1.renderDashboard)(computedData, dashboardPath));
+            return res.send((0, dashboard_1.renderDashboard)(computedData, dashboardPath, docsUrl));
         });
         if (subscriptionsEnabled) {
             router.post(`${dashboardPath}/subscription/change`, async (req, res) => {
