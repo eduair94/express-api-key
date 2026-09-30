@@ -1,6 +1,6 @@
 import { AttachmentBuilder, Client, GatewayIntentBits, Message, TextChannel } from "discord.js";
 import fs from "fs";
-import uuid4 from "uuid4";
+import { randomUUID } from "crypto";
 import { ApiKeyModel } from "../models/ApiKey";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN!;
@@ -31,7 +31,7 @@ client.on("messageCreate", async (msg: Message) => {
   const keys: string[] = [];
   const now = new Date();
   for (let i = 0; i < count; i++) {
-    const key = uuid4();
+    const key = randomUUID();
     await ApiKeyModel.create({
       key,
       role,

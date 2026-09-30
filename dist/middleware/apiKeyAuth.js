@@ -426,7 +426,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 { lastUsedAt: null },
                 { lastUsedAt: { $lte: earliestAllowed } },
             ],
-        }, { $set: { lastUsedAt: now } }, { new: true });
+        }, { $set: { lastUsedAt: now } }, { returnDocument: "after" });
         if (!rateLimitResult) {
             // Revert in-memory timestamp so the next request re-checks cleanly
             if (lastInMemory !== undefined) {
@@ -573,7 +573,9 @@ function createRenewalFunction(mongoose) {
                 },
             },
             { $unset: ['_currentExpiry', '_isExpired'] },
-        ], { new: true });
+        ], 
+        // Mongoose 9 rejects update pipelines unless explicitly allowed.
+        { returnDocument: "after", updatePipeline: true });
         return updated;
     };
 }

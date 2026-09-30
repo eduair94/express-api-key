@@ -9,7 +9,7 @@ A robust, reusable Express middleware for API key authentication, role-based acc
 npm install express-api-key
 ```
 
-> **Peer dependencies:** You must also install `express`, `mongoose`, and `rate-limiter-flexible` in your project.
+> **Peer dependencies:** Your project provides `express` and `mongoose` (8.16+ or 9).
 
 ---
 ## Quick Start
@@ -147,7 +147,7 @@ A robust, reusable Express middleware for API key authentication, role-based acc
 npm install express-api-key
 ```
 
-> **Peer dependencies:** You must also install `express`, `mongoose`, and `rate-limiter-flexible` in your project.
+> **Peer dependencies:** Your project provides `express` and `mongoose` (8.16+ or 9).
 
 ---
 

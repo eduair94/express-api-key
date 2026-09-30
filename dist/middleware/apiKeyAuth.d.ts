@@ -47,8 +47,10 @@ export interface RenewalOptions {
  * });
  * ```
  */
-export declare function createRenewalFunction(mongoose: Mongoose): (key: string, options: RenewalOptions) => Promise<(import("mongoose").Document<unknown, {}, IApiKey, {}> & IApiKey & Required<{
-    _id: unknown;
+export declare function createRenewalFunction(mongoose: Mongoose): (key: string, options: RenewalOptions) => Promise<(import("mongoose").Document<unknown, {}, IApiKey, {}, import("mongoose").DefaultSchemaOptions> & IApiKey & Required<{
+    _id: import("mongoose").Types.ObjectId;
 }> & {
     __v: number;
+} & {
+    id: string;
 }) | null>;

@@ -526,7 +526,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
         ],
       },
       { $set: { lastUsedAt: now } },
-      { new: true },
+      { returnDocument: "after" },
     );
     if (!rateLimitResult) {
       // Revert in-memory timestamp so the next request re-checks cleanly
@@ -702,7 +702,8 @@ export function createRenewalFunction(mongoose: Mongoose) {
         },
         { $unset: ['_currentExpiry', '_isExpired'] },
       ],
-      { new: true },
+      // Mongoose 9 rejects update pipelines unless explicitly allowed.
+      { returnDocument: "after", updatePipeline: true },
     );
 
     return updated;

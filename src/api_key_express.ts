@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-import dotenv from "dotenv";
+import "dotenv/config";
+import { randomUUID } from "crypto";
 import fs from "fs";
 import mongoose from "mongoose";
-import uuid4 from "uuid4";
 import { ApiKeyModel } from "./models/ApiKey";
 import { RoleModel } from "./models/Role";
-dotenv.config();
 
 async function genkeys(role: string, daysValidStr: string, countStr: string) {
   const daysValid = parseInt(daysValidStr) || 30;
@@ -25,7 +24,7 @@ async function genkeys(role: string, daysValidStr: string, countStr: string) {
   const keys: string[] = [];
   const now = new Date();
   for (let i = 0; i < count; i++) {
-    const key = uuid4();
+    const key = randomUUID();
     await ApiKeyModel.create({
       key,
       role,
@@ -51,7 +50,7 @@ async function roleCmd(name: string, minIntervalStr: string, maxMonthlyStr: stri
   const maxMonthlyUsage = parseInt(maxMonthlyStr);
   await mongoose.connect(process.env.MONGODB_URI!);
   const update = { name, minIntervalSeconds, maxMonthlyUsage };
-  const result = await RoleModel.findOneAndUpdate({ name }, update, { upsert: true, new: true });
+  const result = await RoleModel.findOneAndUpdate({ name }, update, { upsert: true, returnDocument: "after" });
   console.log(`Role '${name}' set: minIntervalSeconds=${minIntervalSeconds}, maxMonthlyUsage=${maxMonthlyUsage}`);
   await mongoose.disconnect();
 }

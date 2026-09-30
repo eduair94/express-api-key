@@ -4,13 +4,12 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const dotenv_1 = __importDefault(require("dotenv"));
+require("dotenv/config");
+const crypto_1 = require("crypto");
 const fs_1 = __importDefault(require("fs"));
 const mongoose_1 = __importDefault(require("mongoose"));
-const uuid4_1 = __importDefault(require("uuid4"));
 const ApiKey_1 = require("./models/ApiKey");
 const Role_1 = require("./models/Role");
-dotenv_1.default.config();
 async function genkeys(role, daysValidStr, countStr) {
     const daysValid = parseInt(daysValidStr) || 30;
     const count = parseInt(countStr) || 1;
@@ -29,7 +28,7 @@ async function genkeys(role, daysValidStr, countStr) {
     const keys = [];
     const now = new Date();
     for (let i = 0; i < count; i++) {
-        const key = (0, uuid4_1.default)();
+        const key = (0, crypto_1.randomUUID)();
         await ApiKey_1.ApiKeyModel.create({
             key,
             role,
@@ -54,7 +53,7 @@ async function roleCmd(name, minIntervalStr, maxMonthlyStr) {
     const maxMonthlyUsage = parseInt(maxMonthlyStr);
     await mongoose_1.default.connect(process.env.MONGODB_URI);
     const update = { name, minIntervalSeconds, maxMonthlyUsage };
-    const result = await Role_1.RoleModel.findOneAndUpdate({ name }, update, { upsert: true, new: true });
+    const result = await Role_1.RoleModel.findOneAndUpdate({ name }, update, { upsert: true, returnDocument: "after" });
     console.log(`Role '${name}' set: minIntervalSeconds=${minIntervalSeconds}, maxMonthlyUsage=${maxMonthlyUsage}`);
     await mongoose_1.default.disconnect();
 }

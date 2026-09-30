@@ -208,7 +208,8 @@ function formatDateLong(date) {
  * Renders the main dashboard HTML
  */
 function renderDashboard(data, dashboardPath = '/dashboard', docsUrl = '/docs') {
-    var _a, _b, _c, _d;
+    var _a, _b;
+    var _c, _d;
     const template = loadTemplate('dashboard.html');
     // Prepare template variables
     const keyStatusText = data.keyExpiresDays !== null
@@ -257,14 +258,14 @@ function renderDashboard(data, dashboardPath = '/dashboard', docsUrl = '/docs') 
         keyExpiresDaysDisplay,
         keyExpiresDateDisplay: keyExpiresDateFormatted,
         // Rate limit
-        minIntervalSeconds: (_b = (_a = data.roleInfo) === null || _a === void 0 ? void 0 : _a.minIntervalSeconds) !== null && _b !== void 0 ? _b : 2,
+        minIntervalSeconds: (_c = (_a = data.roleInfo) === null || _a === void 0 ? void 0 : _a.minIntervalSeconds) !== null && _c !== void 0 ? _c : 2,
         // Details - must match template placeholders
         lastUsedAtDisplay: formatDate(data.lastUsedAt),
         requestCountStartDisplay: data.requestCountStart ? formatDate(data.requestCountStart) : 'Not yet',
         daysValidDisplay: data.daysValid ? `${data.daysValid} days from first use` : 'Unlimited',
         createdAtDisplay: data.createdAt ? formatDate(data.createdAt) : 'Unknown',
         // Dynamic sections
-        allowedEndpointsSection: generateAllowedEndpointsSection((_c = data.roleInfo) === null || _c === void 0 ? void 0 : _c.allowedEndpoints),
+        allowedEndpointsSection: generateAllowedEndpointsSection((_b = data.roleInfo) === null || _b === void 0 ? void 0 : _b.allowedEndpoints),
         insightsContent: generateInsightsContent(data),
         subscriptionSection: (_d = data.subscriptionSection) !== null && _d !== void 0 ? _d : '',
         // Footer
