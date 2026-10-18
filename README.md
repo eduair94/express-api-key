@@ -59,7 +59,7 @@ browsers never send to a server; the checkout reads it and removes it from the a
 The auto-renew panel reads `GET <subscriptionApiBaseUrl>/api/subscription/status`: a
 subscription (`success` + `data`) is shown with change/turn-off controls; `code: "NO_SUBSCRIPTION"`
 with `autoRenew: { available, message }` offers "Turn on auto-renew" (or says why it is not
-available).
+available). Its change form uses the status's `requestBounds: { min, step }` (default 50,000 / 50,000).
 
 ## CLI Usage
 

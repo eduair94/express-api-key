@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.2] - 2026-10-18
+### Added
+- The auto-renew panel's "Requests per cycle" form takes its `min` / `step` from the
+  subscription service's status (`requestBounds: { min, step }`), so each service offers its
+  own amounts (Spotify sells from 20,000 in steps of 10,000). An older service that does not
+  send them keeps the previous 50,000 / 50,000.
+
 ## [1.7.1] - 2026-10-17
 ### Security
 - The dashboard login only looks up a plain-string API key (≤ 200 characters). The form and

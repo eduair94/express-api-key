@@ -7,6 +7,15 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseSubscriptionStatus = parseSubscriptionStatus;
 exports.renderSubscriptionPanel = renderSubscriptionPanel;
+const DEFAULT_BOUNDS = { min: 50000, step: 50000 };
+function parseBounds(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v))
+        return null;
+    const o = v;
+    const min = typeof o.min === 'number' && Number.isFinite(o.min) && o.min > 0 ? o.min : null;
+    const step = typeof o.step === 'number' && Number.isFinite(o.step) && o.step > 0 ? o.step : null;
+    return min && step ? { min, step } : null;
+}
 function parseOffer(v) {
     if (!v || typeof v !== 'object' || Array.isArray(v))
         return null;
@@ -28,7 +37,7 @@ function parseSubscriptionStatus(json) {
     const j = json;
     const offer = parseOffer(j.autoRenew);
     if (j.success === true && j.data && typeof j.data === 'object' && !Array.isArray(j.data)) {
-        return { kind: 'subscription', data: j.data, offer };
+        return { kind: 'subscription', data: j.data, offer, bounds: parseBounds(j.requestBounds) };
     }
     if (j.success === false && j.code === 'NO_SUBSCRIPTION' && offer) {
         const cycle = Number(j.cycleDays);
@@ -110,7 +119,7 @@ function stat(label, value) {
         <p class="font-semibold mt-1">${value}</p>
       </div>`;
 }
-function renderSubscription(data, offer, dashboardPath, autoRenewUrl) {
+function renderSubscription(data, offer, bounds, dashboardPath, autoRenewUrl) {
     const active = data.status === 'active';
     const suspended = data.status === 'suspended';
     const ended = data.status === 'cancelled' || data.status === 'expired';
@@ -152,7 +161,7 @@ function renderSubscription(data, offer, dashboardPath, autoRenewUrl) {
         ? `<form method="POST" action="${esc(dashboardPath)}/subscription/change" class="mt-6 flex flex-wrap items-end gap-3">
          <label class="text-sm">
            <span class="block text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Requests per cycle</span>
-           <input type="number" name="requestsAmount" min="50000" step="50000" value="${esc(String(data.requestsAmount))}"
+           <input type="number" name="requestsAmount" min="${bounds.min}" step="${bounds.step}" value="${esc(String(data.requestsAmount))}"
              class="w-40 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus-ring">
          </label>
          <button type="submit" class="${BUTTON_PRIMARY}">Change from next cycle</button>
@@ -181,10 +190,10 @@ function renderSubscription(data, offer, dashboardPath, autoRenewUrl) {
  * checkout is configured: then a key without a subscription shows nothing).
  */
 function renderSubscriptionPanel(input, dashboardPath, autoRenewUrl) {
-    var _a;
+    var _a, _b;
     if (!input)
         return '';
     if (input.kind === 'none')
         return renderOff(input, autoRenewUrl);
-    return renderSubscription(input.data, (_a = input.offer) !== null && _a !== void 0 ? _a : null, dashboardPath, autoRenewUrl);
+    return renderSubscription(input.data, (_a = input.offer) !== null && _a !== void 0 ? _a : null, (_b = input.bounds) !== null && _b !== void 0 ? _b : DEFAULT_BOUNDS, dashboardPath, autoRenewUrl);
 }

@@ -25,10 +25,17 @@ export interface AutoRenewOffer {
     /** Customer-facing reason when unavailable. */
     message: string | null;
 }
+/** Requests per cycle the service sells: the change form's min and step. */
+export interface RequestBounds {
+    min: number;
+    step: number;
+}
 export type SubscriptionPanelInput = {
     kind: 'subscription';
     data: SubscriptionPanelData;
     offer?: AutoRenewOffer | null;
+    /** null/absent = an older service: 50,000 in steps of 50,000. */
+    bounds?: RequestBounds | null;
 } | {
     kind: 'none';
     offer: AutoRenewOffer;

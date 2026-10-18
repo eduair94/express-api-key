@@ -62,14 +62,27 @@ assert_1.default.ok((0, subscriptionPanel_1.renderSubscriptionPanel)({ kind: 'su
     // No checkout to send the customer to: nothing to offer, no panel.
     assert_1.default.strictEqual((0, subscriptionPanel_1.renderSubscriptionPanel)({ kind: 'none', offer: { available: true, message: null }, cycleDays: 30 }, '/dashboard', null), '');
 }
+// ── the change form sells what the service sells ──────────────────────────
+{
+    const spotify = (0, subscriptionPanel_1.renderSubscriptionPanel)({ kind: 'subscription', data, bounds: { min: 20000, step: 10000 } }, '/dashboard', AUTO_URL);
+    assert_1.default.ok(spotify.includes('min="20000" step="10000"'), "the service's own bounds");
+    const older = (0, subscriptionPanel_1.renderSubscriptionPanel)({ kind: 'subscription', data }, '/dashboard', AUTO_URL);
+    assert_1.default.ok(older.includes('min="50000" step="50000"'), 'an older service: the previous bounds');
+}
 // ── parsing what the subscription service answers ─────────────────────────
 {
-    assert_1.default.deepStrictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)({ success: true, data, autoRenew: { available: false, reason: 'already_active', message: 'x' } }), { kind: 'subscription', data, offer: { available: false, message: 'x' } });
+    const parsed = (0, subscriptionPanel_1.parseSubscriptionStatus)({ success: true, data, requestBounds: { min: 20000, step: 10000 } });
+    assert_1.default.deepStrictEqual(parsed && parsed.kind === 'subscription' && parsed.bounds, { min: 20000, step: 10000 });
+    for (const bad of [{ min: -1, step: 10 }, { min: 10, step: 0 }, { min: 'x', step: 10 }, null, 'nope'])
+        assert_1.default.strictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)({ success: true, data, requestBounds: bad }).bounds, null, JSON.stringify(bad));
+}
+{
+    assert_1.default.deepStrictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)({ success: true, data, autoRenew: { available: false, reason: 'already_active', message: 'x' } }), { kind: 'subscription', data, offer: { available: false, message: 'x' }, bounds: null });
     assert_1.default.deepStrictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)({ success: false, code: 'NO_SUBSCRIPTION', autoRenew: { available: true, reason: null, message: null }, cycleDays: 30 }), { kind: 'none', offer: { available: true, message: null }, cycleDays: 30 });
     // An older service: no code, no offer → nothing to show.
     assert_1.default.strictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)({ success: false, error: 'No subscription found for this API key' }), null);
     // An older service with a subscription: shown, no offer.
-    assert_1.default.deepStrictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)({ success: true, data }), { kind: 'subscription', data, offer: null });
+    assert_1.default.deepStrictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)({ success: true, data }), { kind: 'subscription', data, offer: null, bounds: null });
     assert_1.default.strictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)({ success: false, code: 'KEY_NOT_FOUND' }), null);
     for (const junk of [null, undefined, 'x', 1, [], { success: true }])
         assert_1.default.strictEqual((0, subscriptionPanel_1.parseSubscriptionStatus)(junk), null, JSON.stringify(junk));

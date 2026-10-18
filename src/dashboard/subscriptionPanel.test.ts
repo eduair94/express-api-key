@@ -95,11 +95,33 @@ assert.ok(
   )
 }
 
+// ── the change form sells what the service sells ──────────────────────────
+{
+  const spotify = renderSubscriptionPanel(
+    { kind: 'subscription', data, bounds: { min: 20_000, step: 10_000 } },
+    '/dashboard',
+    AUTO_URL
+  )
+  assert.ok(spotify.includes('min="20000" step="10000"'), "the service's own bounds")
+  const older = renderSubscriptionPanel({ kind: 'subscription', data }, '/dashboard', AUTO_URL)
+  assert.ok(older.includes('min="50000" step="50000"'), 'an older service: the previous bounds')
+}
+
 // ── parsing what the subscription service answers ─────────────────────────
+{
+  const parsed = parseSubscriptionStatus({ success: true, data, requestBounds: { min: 20_000, step: 10_000 } })
+  assert.deepStrictEqual(parsed && parsed.kind === 'subscription' && parsed.bounds, { min: 20_000, step: 10_000 })
+  for (const bad of [{ min: -1, step: 10 }, { min: 10, step: 0 }, { min: 'x', step: 10 }, null, 'nope'])
+    assert.strictEqual(
+      (parseSubscriptionStatus({ success: true, data, requestBounds: bad }) as any).bounds,
+      null,
+      JSON.stringify(bad)
+    )
+}
 {
   assert.deepStrictEqual(
     parseSubscriptionStatus({ success: true, data, autoRenew: { available: false, reason: 'already_active', message: 'x' } }),
-    { kind: 'subscription', data, offer: { available: false, message: 'x' } }
+    { kind: 'subscription', data, offer: { available: false, message: 'x' }, bounds: null }
   )
   assert.deepStrictEqual(
     parseSubscriptionStatus({ success: false, code: 'NO_SUBSCRIPTION', autoRenew: { available: true, reason: null, message: null }, cycleDays: 30 }),
@@ -108,7 +130,7 @@ assert.ok(
   // An older service: no code, no offer → nothing to show.
   assert.strictEqual(parseSubscriptionStatus({ success: false, error: 'No subscription found for this API key' }), null)
   // An older service with a subscription: shown, no offer.
-  assert.deepStrictEqual(parseSubscriptionStatus({ success: true, data }), { kind: 'subscription', data, offer: null })
+  assert.deepStrictEqual(parseSubscriptionStatus({ success: true, data }), { kind: 'subscription', data, offer: null, bounds: null })
   assert.strictEqual(parseSubscriptionStatus({ success: false, code: 'KEY_NOT_FOUND' }), null)
   for (const junk of [null, undefined, 'x', 1, [], { success: true }])
     assert.strictEqual(parseSubscriptionStatus(junk), null, JSON.stringify(junk))

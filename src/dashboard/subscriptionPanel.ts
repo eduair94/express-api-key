@@ -25,9 +25,31 @@ export interface AutoRenewOffer {
   message: string | null
 }
 
+/** Requests per cycle the service sells: the change form's min and step. */
+export interface RequestBounds {
+  min: number
+  step: number
+}
+
 export type SubscriptionPanelInput =
-  | { kind: 'subscription'; data: SubscriptionPanelData; offer?: AutoRenewOffer | null }
+  | {
+      kind: 'subscription'
+      data: SubscriptionPanelData
+      offer?: AutoRenewOffer | null
+      /** null/absent = an older service: 50,000 in steps of 50,000. */
+      bounds?: RequestBounds | null
+    }
   | { kind: 'none'; offer: AutoRenewOffer; cycleDays: number }
+
+const DEFAULT_BOUNDS: RequestBounds = { min: 50000, step: 50000 }
+
+function parseBounds(v: unknown): RequestBounds | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  const o = v as { min?: unknown; step?: unknown }
+  const min = typeof o.min === 'number' && Number.isFinite(o.min) && o.min > 0 ? o.min : null
+  const step = typeof o.step === 'number' && Number.isFinite(o.step) && o.step > 0 ? o.step : null
+  return min && step ? { min, step } : null
+}
 
 function parseOffer(v: unknown): AutoRenewOffer | null {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null
@@ -46,10 +68,17 @@ function parseOffer(v: unknown): AutoRenewOffer | null {
  */
 export function parseSubscriptionStatus(json: unknown): SubscriptionPanelInput | null {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return null
-  const j = json as { success?: unknown; data?: unknown; code?: unknown; autoRenew?: unknown; cycleDays?: unknown }
+  const j = json as {
+    success?: unknown
+    data?: unknown
+    code?: unknown
+    autoRenew?: unknown
+    cycleDays?: unknown
+    requestBounds?: unknown
+  }
   const offer = parseOffer(j.autoRenew)
   if (j.success === true && j.data && typeof j.data === 'object' && !Array.isArray(j.data)) {
-    return { kind: 'subscription', data: j.data as SubscriptionPanelData, offer }
+    return { kind: 'subscription', data: j.data as SubscriptionPanelData, offer, bounds: parseBounds(j.requestBounds) }
   }
   if (j.success === false && j.code === 'NO_SUBSCRIPTION' && offer) {
     const cycle = Number(j.cycleDays)
@@ -143,6 +172,7 @@ function stat(label: string, value: string): string {
 function renderSubscription(
   data: SubscriptionPanelData,
   offer: AutoRenewOffer | null,
+  bounds: RequestBounds,
   dashboardPath: string,
   autoRenewUrl: string | null,
 ): string {
@@ -192,7 +222,7 @@ function renderSubscription(
     ? `<form method="POST" action="${esc(dashboardPath)}/subscription/change" class="mt-6 flex flex-wrap items-end gap-3">
          <label class="text-sm">
            <span class="block text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Requests per cycle</span>
-           <input type="number" name="requestsAmount" min="50000" step="50000" value="${esc(String(data.requestsAmount))}"
+           <input type="number" name="requestsAmount" min="${bounds.min}" step="${bounds.step}" value="${esc(String(data.requestsAmount))}"
              class="w-40 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus-ring">
          </label>
          <button type="submit" class="${BUTTON_PRIMARY}">Change from next cycle</button>
@@ -230,5 +260,5 @@ export function renderSubscriptionPanel(
 ): string {
   if (!input) return ''
   if (input.kind === 'none') return renderOff(input, autoRenewUrl)
-  return renderSubscription(input.data, input.offer ?? null, dashboardPath, autoRenewUrl)
+  return renderSubscription(input.data, input.offer ?? null, input.bounds ?? DEFAULT_BOUNDS, dashboardPath, autoRenewUrl)
 }
