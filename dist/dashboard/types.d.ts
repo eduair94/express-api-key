@@ -13,6 +13,8 @@ export interface DashboardData {
     createdAt: Date | null;
     /** True when the key has a per-key maxMonthlyUsage override (no automatic quota reset) */
     hasPerKeyQuota?: boolean;
+    /** The application revoked the key (`active: false`): no renewal links, a banner instead. */
+    revoked?: boolean;
     /** Pre-rendered subscription section HTML (empty string when none). */
     subscriptionSection?: string;
 }
@@ -39,6 +41,8 @@ export interface ComputedDashboardData {
     daysValid: number | null;
     createdAt: Date | null;
     hasPerKeyQuota: boolean;
+    /** The application revoked the key (`active: false`). */
+    revoked?: boolean;
     monthlyCap: number;
     usagePercent: string;
     remaining: number;

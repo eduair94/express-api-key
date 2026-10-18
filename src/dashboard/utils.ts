@@ -15,6 +15,7 @@ export function computeDashboardData(data: DashboardData): ComputedDashboardData
     daysValid,
     createdAt,
     hasPerKeyQuota: perKeyQuota,
+    revoked,
   } = data;
 
   const hasPerKeyQuota = !!perKeyQuota;
@@ -58,6 +59,7 @@ export function computeDashboardData(data: DashboardData): ComputedDashboardData
     daysValid,
     createdAt,
     hasPerKeyQuota,
+    revoked: !!revoked,
     monthlyCap,
     usagePercent,
     remaining,

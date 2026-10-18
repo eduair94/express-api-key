@@ -6,7 +6,7 @@ exports.computeDashboardData = computeDashboardData;
  */
 function computeDashboardData(data) {
     var _a;
-    const { key, role, requestCountMonth, requestCountStart, lastUsedAt, keyExpiresAt, roleInfo, daysValid, createdAt, hasPerKeyQuota: perKeyQuota, } = data;
+    const { key, role, requestCountMonth, requestCountStart, lastUsedAt, keyExpiresAt, roleInfo, daysValid, createdAt, hasPerKeyQuota: perKeyQuota, revoked, } = data;
     const hasPerKeyQuota = !!perKeyQuota;
     const monthlyCap = (_a = roleInfo === null || roleInfo === void 0 ? void 0 : roleInfo.maxMonthlyUsage) !== null && _a !== void 0 ? _a : 10000;
     const usagePercent = Math.min(100, ((requestCountMonth !== null && requestCountMonth !== void 0 ? requestCountMonth : 0) / monthlyCap) * 100).toFixed(1);
@@ -44,6 +44,7 @@ function computeDashboardData(data) {
         daysValid,
         createdAt,
         hasPerKeyQuota,
+        revoked: !!revoked,
         monthlyCap,
         usagePercent,
         remaining,

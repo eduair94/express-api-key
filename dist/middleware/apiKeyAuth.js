@@ -181,8 +181,12 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
         // Login handler (POST) - validate API key and create session
         router.post(`${dashboardPath}/login`, async (req, res) => {
             var _a;
-            const apiKey = (_a = req.body) === null || _a === void 0 ? void 0 : _a.apiKey;
-            if (!apiKey) {
+            // A plain string only: the body parsers turn `apiKey[$regex]=…` into an
+            // operator object, and findOne({ key: <object> }) matched stored keys —
+            // a 500/401 difference that read them out one character at a time.
+            const raw = (_a = req.body) === null || _a === void 0 ? void 0 : _a.apiKey;
+            const apiKey = typeof raw === "string" ? raw.trim() : "";
+            if (!apiKey || apiKey.length > 200) {
                 res.setHeader("Content-Type", "text/html");
                 return res.status(400).send((0, dashboard_1.renderLoginPage)({
                     error: 'API key is required',
@@ -258,11 +262,18 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 daysValid: (_f = apiKeyDoc.daysValid) !== null && _f !== void 0 ? _f : null,
                 createdAt: (_g = apiKeyDoc.createdAt) !== null && _g !== void 0 ? _g : null,
                 hasPerKeyQuota: !!apiKeyDoc.maxMonthlyUsage,
+                // `active: false` = revoked by the application (refunded, charged
+                // back). Not a field this package declares or enforces; read as stored.
+                revoked: apiKeyDoc.get("active") === false,
             };
             // Compute additional dashboard metrics
             const computedData = (0, dashboard_1.computeDashboardData)(dashboardData);
             if (subscriptionsEnabled) {
-                computedData.subscriptionSection = await fetchSubscriptionPanel(subscriptionApiBaseUrl, subscriptionInternalSecret, apiKey, dashboardPath, (0, renewLinks_1.buildRenewUrl)(renewUrl, apiKey, { autoRenew: true, src: "dashboard_autorenew" }));
+                computedData.subscriptionSection = await fetchSubscriptionPanel(subscriptionApiBaseUrl, subscriptionInternalSecret, apiKey, dashboardPath, 
+                // Nothing is sold on a revoked key: no "Turn on auto-renew".
+                dashboardData.revoked
+                    ? null
+                    : (0, renewLinks_1.buildRenewUrl)(renewUrl, apiKey, { autoRenew: true, src: "dashboard_autorenew" }));
             }
             res.setHeader("Content-Type", "text/html");
             // The page holds the key itself: never cached, never stored by a proxy.

@@ -76,6 +76,15 @@ const render = (over = {}, renewUrl = CHECKOUT) => (0, renderer_1.renderDashboar
     assert_1.default.ok(noUrl.includes('id="keyAlert"'));
     assert_1.default.ok(!/id="keyAlert"[\s\S]*mode=renew/.test(noUrl));
 }
+// ── a revoked key (refunded or charged back): nothing to buy, say why ────
+{
+    const html = render({ revoked: true, keyExpiresDays: 3, keyStatus: 'warning', usagePercent: '90.0' });
+    assert_1.default.ok(!html.includes('id="addCreditsLink"'), 'no "Add credits" on a revoked key');
+    assert_1.default.ok(!html.includes('mode=renew'), 'no renewal link anywhere');
+    assert_1.default.ok(html.includes('id="keyAlert"'));
+    assert_1.default.match(html, /This API key was revoked/);
+    assert_1.default.match(html, /Contact support/);
+}
 // ── a key that is not URL- or HTML-safe never breaks out of the attribute ─
 {
     const html = render({ key: 'a"b<c>&d' });

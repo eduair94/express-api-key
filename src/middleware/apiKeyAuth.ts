@@ -261,9 +261,13 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
 
     // Login handler (POST) - validate API key and create session
     router.post(`${dashboardPath}/login`, async (req: Request, res: Response) => {
-      const apiKey = req.body?.apiKey;
-      
-      if (!apiKey) {
+      // A plain string only: the body parsers turn `apiKey[$regex]=…` into an
+      // operator object, and findOne({ key: <object> }) matched stored keys —
+      // a 500/401 difference that read them out one character at a time.
+      const raw: unknown = req.body?.apiKey;
+      const apiKey = typeof raw === "string" ? raw.trim() : "";
+
+      if (!apiKey || apiKey.length > 200) {
         res.setHeader("Content-Type", "text/html");
         return res.status(400).send(renderLoginPage({ 
           error: 'API key is required',
@@ -349,6 +353,9 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
         daysValid: apiKeyDoc.daysValid ?? null,
         createdAt: (apiKeyDoc as any).createdAt ?? null,
         hasPerKeyQuota: !!apiKeyDoc.maxMonthlyUsage,
+        // `active: false` = revoked by the application (refunded, charged
+        // back). Not a field this package declares or enforces; read as stored.
+        revoked: apiKeyDoc.get("active") === false,
       };
 
       // Compute additional dashboard metrics
@@ -359,7 +366,10 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
           subscriptionInternalSecret,
           apiKey,
           dashboardPath,
-          buildRenewUrl(renewUrl, apiKey, { autoRenew: true, src: "dashboard_autorenew" }),
+          // Nothing is sold on a revoked key: no "Turn on auto-renew".
+          dashboardData.revoked
+            ? null
+            : buildRenewUrl(renewUrl, apiKey, { autoRenew: true, src: "dashboard_autorenew" }),
         );
       }
 

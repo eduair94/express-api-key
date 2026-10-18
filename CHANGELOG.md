@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.1] - 2026-10-17
+### Security
+- The dashboard login only looks up a plain-string API key (≤ 200 characters). The form and
+  JSON body parsers turned `apiKey[$regex]=…` into an operator object that matched stored keys;
+  the 500-when-a-key-matches / 401-when-none difference let anyone read keys out one character
+  at a time. Non-strings are now refused with 400 before any database call.
+
+### Added
+- A key the application revoked (`active: false`, a field this package does not declare) gets a
+  "This API key was revoked" banner and no "Add credits" / renewal / auto-renew links.
+
 ## [1.7.0] - 2026-10-17
 ### Added
 - `renewUrl` option: the dashboard shows an "Add credits" button, "Renew now" / "Add credits"

@@ -72,6 +72,14 @@ function insightLink(href: string, label: string, tone: 'red' | 'amber'): string
  * A role-based quota refills by itself every 30 days, so it gets none.
  */
 function generateKeyAlert(data: ComputedDashboardData, renewLink: string | null): string {
+  if (data.revoked) {
+    return `
+    <div id="keyAlert" role="alert" class="mb-6 p-5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl animate-fade-in">
+      <p class="font-semibold text-red-700 dark:text-red-300">This API key was revoked</p>
+      <p class="text-sm text-red-600 dark:text-red-300 mt-1">Calls with it are refused and it cannot be renewed. Contact support if you think this is a mistake.</p>
+    </div>
+  `;
+  }
   const expired = data.keyExpiresDays !== null && data.keyExpiresDays <= 0;
   const spent = data.hasPerKeyQuota && data.remaining <= 0;
   if (!expired && !spent) return '';
@@ -229,7 +237,8 @@ export function renderDashboard(
   renewUrl?: string,
 ): string {
   const template = loadTemplate('dashboard.html');
-  const renewLink = buildRenewUrl(renewUrl, data.key);
+  // Nothing is sold on a revoked key: no renewal link anywhere.
+  const renewLink = data.revoked ? null : buildRenewUrl(renewUrl, data.key);
   const addCreditsButton = renewLink
     ? `<a id="addCreditsLink" href="${escapeHtml(renewLink)}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-semibold text-white transition-colors focus-ring">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
