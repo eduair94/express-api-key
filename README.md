@@ -36,6 +36,31 @@ app.get('/protected', (req, res) => {
   res.json({ message: 'You are authenticated!', apiKey: (req as any).apiKeyDoc });
 });
 ```
+
+### 3. Customer dashboard, renewals and auto-renew (optional)
+
+```typescript
+app.use(createApiKeyMiddlewareWithConnection(mongoose, {
+  headerName: 'x-api-key',
+  exposeDashboard: true,              // GET /dashboard (login with the API key)
+  docsUrl: '/docs',                   // "API Docs" button
+  renewUrl: 'https://checkout.example.com/', // "Add credits" / "Renew now" links
+  subscriptionsEnabled: true,         // "Auto-renew" panel (PayPal subscriptions)
+  subscriptionApiBaseUrl: 'http://127.0.0.1:4011',
+  subscriptionInternalSecret: process.env.SUBSCRIPTION_INTERNAL_SECRET,
+}));
+```
+
+With `renewUrl` set, the dashboard links to `<renewUrl>?mode=renew&src=dashboard#key=<key>`
+(and `&autorenew=1` for "Turn on auto-renew"). The key travels in the URL **fragment**, which
+browsers never send to a server; the checkout reads it and removes it from the address bar.
+`buildRenewUrl(renewUrl, key, { autoRenew })` builds the same link for your own pages.
+
+The auto-renew panel reads `GET <subscriptionApiBaseUrl>/api/subscription/status`: a
+subscription (`success` + `data`) is shown with change/turn-off controls; `code: "NO_SUBSCRIPTION"`
+with `autoRenew: { available, message }` offers "Turn on auto-renew" (or says why it is not
+available).
+
 ## CLI Usage
 
 This package provides a CLI for managing roles and generating API keys.

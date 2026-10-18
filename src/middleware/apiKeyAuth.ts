@@ -13,7 +13,8 @@ import {
     renderStatusPage,
     setSessionSecret
 } from "../dashboard";
-import { renderSubscriptionPanel, SubscriptionPanelData } from "../dashboard/subscriptionPanel";
+import { buildRenewUrl } from "../dashboard/renewLinks";
+import { parseSubscriptionStatus, renderSubscriptionPanel } from "../dashboard/subscriptionPanel";
 import { ApiKeySchema, IApiKey } from "../models/ApiKey";
 import { RoleSchema } from "../models/Role";
 
@@ -43,6 +44,8 @@ async function fetchSubscriptionPanel(
   internalSecret: string,
   apiKey: string,
   dashboardPath: string,
+  /** Checkout link that starts auto-renew for this key; null = none configured. */
+  autoRenewUrl: string | null,
 ): Promise<string> {
   if (!baseUrl) return "";
   const controller = new AbortController();
@@ -54,9 +57,7 @@ async function fetchSubscriptionPanel(
       signal: controller.signal,
     });
     if (!res.ok) return "";
-    const json = (await res.json()) as { success?: boolean; data?: SubscriptionPanelData };
-    if (!json.success || !json.data) return "";
-    return renderSubscriptionPanel(json.data, dashboardPath);
+    return renderSubscriptionPanel(parseSubscriptionStatus(await res.json()), dashboardPath, autoRenewUrl);
   } catch {
     return ""; // network error, timeout/abort, or bad JSON — never break the dashboard
   } finally {
@@ -94,6 +95,14 @@ export interface ApiKeyMiddlewareOptions {
   subscriptionApiBaseUrl?: string;
   /** Shared secret sent as x-internal-secret to the subscription API. */
   subscriptionInternalSecret?: string;
+  /**
+   * Checkout page that renews keys (e.g. https://whatsapp-sub.checkleaked.com/).
+   * When set, the dashboard shows "Add credits" / "Renew now" links to
+   * `<renewUrl>?mode=renew#key=<key>` and, with subscriptionsEnabled, a
+   * "Turn on auto-renew" link (`&autorenew=1`). The key travels in the URL
+   * fragment, which browsers never send to a server. Unset = no such links.
+   */
+  renewUrl?: string;
 }
 
 export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options: ApiKeyMiddlewareOptions = {}) {
@@ -113,6 +122,13 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
   const subscriptionsEnabled = options.subscriptionsEnabled ?? false;
   const subscriptionApiBaseUrl = (options.subscriptionApiBaseUrl || "").replace(/\/+$/, "");
   const subscriptionInternalSecret = options.subscriptionInternalSecret || "";
+  const renewUrl = options.renewUrl || "";
+
+  if (renewUrl && !buildRenewUrl(renewUrl, "probe")) {
+    console.warn(
+      "[express-api-key] renewUrl is not an http(s) URL — the dashboard shows no renewal links.",
+    );
+  }
 
   if (subscriptionsEnabled && !subscriptionApiBaseUrl) {
     console.warn(
@@ -343,11 +359,14 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
           subscriptionInternalSecret,
           apiKey,
           dashboardPath,
+          buildRenewUrl(renewUrl, apiKey, { autoRenew: true, src: "dashboard_autorenew" }),
         );
       }
 
       res.setHeader("Content-Type", "text/html");
-      return res.send(renderDashboard(computedData, dashboardPath, docsUrl));
+      // The page holds the key itself: never cached, never stored by a proxy.
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(renderDashboard(computedData, dashboardPath, docsUrl, renewUrl || undefined));
     });
 
     if (subscriptionsEnabled) {

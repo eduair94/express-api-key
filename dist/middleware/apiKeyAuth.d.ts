@@ -18,6 +18,14 @@ export interface ApiKeyMiddlewareOptions {
     subscriptionApiBaseUrl?: string;
     /** Shared secret sent as x-internal-secret to the subscription API. */
     subscriptionInternalSecret?: string;
+    /**
+     * Checkout page that renews keys (e.g. https://whatsapp-sub.checkleaked.com/).
+     * When set, the dashboard shows "Add credits" / "Renew now" links to
+     * `<renewUrl>?mode=renew#key=<key>` and, with subscriptionsEnabled, a
+     * "Turn on auto-renew" link (`&autorenew=1`). The key travels in the URL
+     * fragment, which browsers never send to a server. Unset = no such links.
+     */
+    renewUrl?: string;
 }
 export declare function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options?: ApiKeyMiddlewareOptions): import("express-serve-static-core").Router;
 /**

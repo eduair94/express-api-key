@@ -3,12 +3,12 @@
     "api_key_express": "./dist/api_key_express.js"
   },
   "name": "express-api-key",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "mega": "api_key_express role mega 0.5 500000",
-    "test": "tsx src/dashboard/subscriptionPanel.test.ts && tsx src/dashboard/dashboardDocsLink.test.ts",
+    "test": "tsx src/dashboard/renewLinks.test.ts && tsx src/dashboard/subscriptionPanel.test.ts && tsx src/dashboard/dashboardRenew.test.ts && tsx src/dashboard/dashboardDocsLink.test.ts",
     "build": "tsc && npm run copy-templates",
     "copy-templates": "node -e \"const fs=require('fs');const path=require('path');const src='src/dashboard/templates';const dest='dist/dashboard/templates';fs.mkdirSync(dest,{recursive:true});fs.readdirSync(src).forEach(f=>fs.copyFileSync(path.join(src,f),path.join(dest,f)));\"",
     "start:example": "npx tsx src/example.ts",
@@ -40,7 +40,7 @@
   "dependencies": {
     "cookie-parser": "^1.4.7",
     "discord.js": "^14.27.0",
-    "dotenv": "^18.0.5",
+    "dotenv": "^18.0.0",
     "express": "^5.2.1"
   },
   "devDependencies": {

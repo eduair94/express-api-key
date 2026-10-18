@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { buildRenewUrl } from './renewLinks';
 import { ComputedDashboardData } from './types';
 
 // Cache templates in memory for performance
@@ -57,10 +58,49 @@ function generateAllowedEndpointsSection(allowedEndpoints?: string[]): string {
   `;
 }
 
+/** A small call to action inside an insight card. */
+function insightLink(href: string, label: string, tone: 'red' | 'amber'): string {
+  const color = tone === 'red'
+    ? 'text-red-700 dark:text-red-300'
+    : 'text-amber-700 dark:text-amber-300';
+  return ` <a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="font-semibold underline underline-offset-2 ${color}">${label}</a>`;
+}
+
+/**
+ * A key that has stopped working — expired, or a purchased balance that is
+ * spent — gets a banner above the stats saying what happened and what to do.
+ * A role-based quota refills by itself every 30 days, so it gets none.
+ */
+function generateKeyAlert(data: ComputedDashboardData, renewLink: string | null): string {
+  const expired = data.keyExpiresDays !== null && data.keyExpiresDays <= 0;
+  const spent = data.hasPerKeyQuota && data.remaining <= 0;
+  if (!expired && !spent) return '';
+
+  const title = expired ? 'This API key has expired' : 'No requests left on this key';
+  const body = renewLink
+    ? (expired
+        ? 'Every call is refused until it is renewed. Renewing reactivates this same key — your integration keeps working with no code changes.'
+        : 'Every call is refused until you add credits. They go onto this same key — no code changes.')
+    : 'Every call is refused until it is renewed. Contact support to renew your key.';
+  const action = renewLink
+    ? `<a href="${escapeHtml(renewLink)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors focus-ring">${expired ? 'Renew now' : 'Add credits'}</a>`
+    : '';
+
+  return `
+    <div id="keyAlert" role="alert" class="mb-6 flex flex-wrap items-center justify-between gap-4 p-5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl animate-fade-in">
+      <div class="min-w-0">
+        <p class="font-semibold text-red-700 dark:text-red-300">${title}</p>
+        <p class="text-sm text-red-600 dark:text-red-300 mt-1">${body}</p>
+      </div>
+      ${action}
+    </div>
+  `;
+}
+
 /**
  * Generates the insights section HTML
  */
-function generateInsightsContent(data: ComputedDashboardData): string {
+function generateInsightsContent(data: ComputedDashboardData, renewLink: string | null): string {
   const insights: string[] = [];
 
   // Usage insight
@@ -74,7 +114,7 @@ function generateInsightsContent(data: ComputedDashboardData): string {
         </div>
         <div class="flex-1 min-w-0">
           <h4 class="font-semibold text-red-700 dark:text-red-400">High Usage Alert</h4>
-          <p class="text-sm text-red-600 dark:text-red-300 mt-1">You've used ${data.usagePercent}% of your monthly quota. Consider upgrading your plan or optimizing API calls.</p>
+          <p class="text-sm text-red-600 dark:text-red-300 mt-1">You've used ${data.usagePercent}% of your monthly quota. ${renewLink ? `Add credits before it runs out — they go onto this same key.${insightLink(renewLink, 'Add credits', 'red')}` : 'Consider upgrading your plan or optimizing API calls.'}</p>
         </div>
       </div>
     `);
@@ -105,7 +145,7 @@ function generateInsightsContent(data: ComputedDashboardData): string {
         </div>
         <div class="flex-1 min-w-0">
           <h4 class="font-semibold text-amber-700 dark:text-amber-400">Key Expiring Soon</h4>
-          <p class="text-sm text-amber-600 dark:text-amber-300 mt-1">Your API key will expire in ${data.keyExpiresDays} days. Contact support to renew your key.</p>
+          <p class="text-sm text-amber-600 dark:text-amber-300 mt-1">Your API key will expire in ${data.keyExpiresDays} days. ${renewLink ? `Renewing early loses nothing: the new days are added on top.${insightLink(renewLink, 'Renew now', 'amber')}` : 'Contact support to renew your key.'}</p>
         </div>
       </div>
     `);
@@ -185,8 +225,19 @@ export function renderDashboard(
   data: ComputedDashboardData,
   dashboardPath: string = '/dashboard',
   docsUrl: string = '/docs',
+  /** Checkout that renews keys (see renewLinks); unset = no renewal links. */
+  renewUrl?: string,
 ): string {
   const template = loadTemplate('dashboard.html');
+  const renewLink = buildRenewUrl(renewUrl, data.key);
+  const addCreditsButton = renewLink
+    ? `<a id="addCreditsLink" href="${escapeHtml(renewLink)}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-semibold text-white transition-colors focus-ring">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Add credits
+        </a>`
+    : '';
 
   // Prepare template variables
   const keyStatusText = data.keyExpiresDays !== null 
@@ -254,8 +305,10 @@ export function renderDashboard(
     createdAtDisplay: data.createdAt ? formatDate(data.createdAt) : 'Unknown',
 
     // Dynamic sections
+    addCreditsButton,
+    keyAlert: generateKeyAlert(data, renewLink),
     allowedEndpointsSection: generateAllowedEndpointsSection(data.roleInfo?.allowedEndpoints),
-    insightsContent: generateInsightsContent(data),
+    insightsContent: generateInsightsContent(data, renewLink),
     subscriptionSection: data.subscriptionSection ?? '',
 
     // Footer

@@ -34,7 +34,8 @@
         </svg>
         API Key Dashboard
       </h1>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
+        {{addCreditsButton}}
         <a href="{{docsUrl}}" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors focus-ring">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.75a4.5 4.5 0 00-4.5-4.5H3.75v15h3.75A4.5 4.5 0 0112 21m0-14.25a4.5 4.5 0 014.5-4.5h3.75v15H16.5A4.5 4.5 0 0012 21m0-14.25V21" />
@@ -87,6 +88,8 @@
         </div>
       </div>
     </div>
+
+    {{keyAlert}}
 
     <!-- Stats Grid -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6">

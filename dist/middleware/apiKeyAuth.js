@@ -8,13 +8,16 @@ exports.createRenewalFunction = createRenewalFunction;
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const express_1 = require("express");
 const dashboard_1 = require("../dashboard");
+const renewLinks_1 = require("../dashboard/renewLinks");
 const subscriptionPanel_1 = require("../dashboard/subscriptionPanel");
 const ApiKey_1 = require("../models/ApiKey");
 const Role_1 = require("../models/Role");
 function getOrCreateModel(mongoose, name, schema) {
     return mongoose.models[name] || mongoose.model(name, schema);
 }
-async function fetchSubscriptionPanel(baseUrl, internalSecret, apiKey, dashboardPath) {
+async function fetchSubscriptionPanel(baseUrl, internalSecret, apiKey, dashboardPath, 
+/** Checkout link that starts auto-renew for this key; null = none configured. */
+autoRenewUrl) {
     if (!baseUrl)
         return "";
     const controller = new AbortController();
@@ -27,10 +30,7 @@ async function fetchSubscriptionPanel(baseUrl, internalSecret, apiKey, dashboard
         });
         if (!res.ok)
             return "";
-        const json = (await res.json());
-        if (!json.success || !json.data)
-            return "";
-        return (0, subscriptionPanel_1.renderSubscriptionPanel)(json.data, dashboardPath);
+        return (0, subscriptionPanel_1.renderSubscriptionPanel)((0, subscriptionPanel_1.parseSubscriptionStatus)(await res.json()), dashboardPath, autoRenewUrl);
     }
     catch (_a) {
         return ""; // network error, timeout/abort, or bad JSON — never break the dashboard
@@ -67,6 +67,10 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
     const subscriptionsEnabled = (_f = options.subscriptionsEnabled) !== null && _f !== void 0 ? _f : false;
     const subscriptionApiBaseUrl = (options.subscriptionApiBaseUrl || "").replace(/\/+$/, "");
     const subscriptionInternalSecret = options.subscriptionInternalSecret || "";
+    const renewUrl = options.renewUrl || "";
+    if (renewUrl && !(0, renewLinks_1.buildRenewUrl)(renewUrl, "probe")) {
+        console.warn("[express-api-key] renewUrl is not an http(s) URL — the dashboard shows no renewal links.");
+    }
     if (subscriptionsEnabled && !subscriptionApiBaseUrl) {
         console.warn("[express-api-key] subscriptionsEnabled is true but subscriptionApiBaseUrl is empty — the Subscription panel will not render.");
     }
@@ -258,10 +262,12 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
             // Compute additional dashboard metrics
             const computedData = (0, dashboard_1.computeDashboardData)(dashboardData);
             if (subscriptionsEnabled) {
-                computedData.subscriptionSection = await fetchSubscriptionPanel(subscriptionApiBaseUrl, subscriptionInternalSecret, apiKey, dashboardPath);
+                computedData.subscriptionSection = await fetchSubscriptionPanel(subscriptionApiBaseUrl, subscriptionInternalSecret, apiKey, dashboardPath, (0, renewLinks_1.buildRenewUrl)(renewUrl, apiKey, { autoRenew: true, src: "dashboard_autorenew" }));
             }
             res.setHeader("Content-Type", "text/html");
-            return res.send((0, dashboard_1.renderDashboard)(computedData, dashboardPath, docsUrl));
+            // The page holds the key itself: never cached, never stored by a proxy.
+            res.setHeader("Cache-Control", "no-store");
+            return res.send((0, dashboard_1.renderDashboard)(computedData, dashboardPath, docsUrl, renewUrl || undefined));
         });
         if (subscriptionsEnabled) {
             router.post(`${dashboardPath}/subscription/change`, async (req, res) => {

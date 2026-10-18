@@ -1,64 +1,190 @@
 "use strict";
 /**
- * Pure renderer for the dashboard "Subscription" section.
- * Returns '' when there is no subscription (panel hidden). No IO.
+ * Pure renderer for the dashboard's "Auto-renew" section (PayPal
+ * subscriptions sold by the subscription service). No IO: the middleware
+ * fetches the status, `parseSubscriptionStatus` reads it, this draws it.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.parseSubscriptionStatus = parseSubscriptionStatus;
 exports.renderSubscriptionPanel = renderSubscriptionPanel;
+function parseOffer(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v))
+        return null;
+    const o = v;
+    return {
+        available: o.available === true,
+        message: typeof o.message === 'string' && o.message ? o.message : null,
+    };
+}
+/**
+ * What the subscription service's `GET /api/subscription/status` answered:
+ * a subscription (`success` + `data`), none (`code: NO_SUBSCRIPTION` with the
+ * offer), or nothing to show (unknown key, an error, an older service that
+ * cannot say whether auto-renew is possible).
+ */
+function parseSubscriptionStatus(json) {
+    if (!json || typeof json !== 'object' || Array.isArray(json))
+        return null;
+    const j = json;
+    const offer = parseOffer(j.autoRenew);
+    if (j.success === true && j.data && typeof j.data === 'object' && !Array.isArray(j.data)) {
+        return { kind: 'subscription', data: j.data, offer };
+    }
+    if (j.success === false && j.code === 'NO_SUBSCRIPTION' && offer) {
+        const cycle = Number(j.cycleDays);
+        return { kind: 'none', offer, cycleDays: Number.isFinite(cycle) && cycle > 0 ? cycle : 30 };
+    }
+    return null;
+}
 function esc(s) {
     return s.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m]));
 }
-function n(x) { return x.toLocaleString('en-US'); }
+function n(x) {
+    const v = Number(x);
+    return Number.isFinite(v) ? v.toLocaleString('en-US') : '—';
+}
+function money(x) {
+    const v = Number(x);
+    return Number.isFinite(v) ? `$${v.toFixed(2)}` : '—';
+}
+/** "October 13, 2026" — in UTC, the clock the subscription service keeps. */
 function d(x) {
     if (!x)
         return '—';
     const dt = new Date(x);
-    return isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    return isNaN(dt.getTime())
+        ? '—'
+        : dt.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
-function renderSubscriptionPanel(data, dashboardPath) {
-    if (!data)
+const CARD = 'bg-white dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 mb-6 animate-fade-in';
+const BUTTON_PRIMARY = 'inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors focus-ring';
+const ICON = `<div class="p-3 bg-slate-100 dark:bg-slate-700 rounded-xl flex-shrink-0">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+      </div>`;
+const BADGES = {
+    on: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+    paused: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+    off: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+};
+function badge(tone, text) {
+    return `<span class="px-2.5 py-0.5 rounded-full text-xs font-semibold ${BADGES[tone]}">${text}</span>`;
+}
+function header(badgeHtml, lead, action = '') {
+    return `
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="flex items-start gap-3 min-w-0">
+        ${ICON}
+        <div class="min-w-0">
+          <h3 id="autoRenewHeading" class="text-lg font-semibold flex items-center gap-2">Auto-renew ${badgeHtml}</h3>
+          <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">${lead}</p>
+        </div>
+      </div>
+      ${action}
+    </div>`;
+}
+function turnOnLink(url, label) {
+    return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="${BUTTON_PRIMARY}">${label}</a>`;
+}
+/** No subscription: offer one, or say why the key cannot have one. */
+function renderOff(input, autoRenewUrl) {
+    if (!autoRenewUrl)
         return '';
-    const active = data.status === 'active';
-    const cancelledOrEnding = data.status === 'cancelled' || data.status === 'expired';
-    const pendingRow = data.pendingChange
-        ? `<p style="margin:6px 0;color:var(--text-secondary,#64748b);font-size:13px;">
-         Pending change next cycle: <strong>${n(data.pendingChange.requestsAmount)}</strong> tokens
-         ($${data.pendingChange.price.toFixed(2)}/cycle)
-       </p>`
+    const { offer, cycleDays } = input;
+    const lead = `Never run out of requests: PayPal recharges this key every ${n(cycleDays)} days with the amount you choose. ` +
+        'Same key, no code changes. Turn it off anytime.';
+    const action = offer.available ? turnOnLink(autoRenewUrl, 'Turn on auto-renew') : '';
+    const reason = !offer.available && offer.message
+        ? `<p class="mt-4 text-sm text-amber-700 dark:text-amber-400">${esc(offer.message)}</p>`
         : '';
-    const graceRow = data.graceEndsAt
-        ? `<p style="margin:6px 0;color:#b45309;font-size:13px;">
-         Cancelled — tokens usable through <strong>${d(data.graceEndsAt)}</strong>
+    return `
+  <section class="${CARD}" aria-labelledby="autoRenewHeading">
+    ${header(badge('off', 'Off'), lead, action)}
+    ${reason}
+  </section>`;
+}
+function stat(label, value) {
+    return `<div class="p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
+        <p class="text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide">${label}</p>
+        <p class="font-semibold mt-1">${value}</p>
+      </div>`;
+}
+function renderSubscription(data, offer, dashboardPath, autoRenewUrl) {
+    const active = data.status === 'active';
+    const suspended = data.status === 'suspended';
+    const ended = data.status === 'cancelled' || data.status === 'expired';
+    let badgeHtml = badge('on', 'On');
+    let lead = `PayPal charges ${money(data.price)} each cycle and adds ${n(data.requestsAmount)} requests to this key.`;
+    if (suspended) {
+        badgeHtml = badge('paused', 'Paused');
+        lead = 'PayPal could not collect the last payment and paused auto-renew. Contact support and we will restart it.';
+    }
+    else if (ended) {
+        badgeHtml = badge('off', 'Off');
+        lead = data.graceEndsAt
+            ? `Auto-renew was turned off. The requests left on this key stay usable through <strong>${d(data.graceEndsAt)}</strong>.`
+            : 'Auto-renew was turned off.';
+    }
+    else if (!active) {
+        lead = 'Waiting for PayPal to confirm the first payment.';
+    }
+    const backOn = ended && autoRenewUrl && (offer === null || offer === void 0 ? void 0 : offer.available) ? turnOnLink(autoRenewUrl, 'Turn auto-renew back on') : '';
+    const reason = ended && offer && !offer.available && offer.message
+        ? `<p class="mt-4 text-sm text-amber-700 dark:text-amber-400">${esc(offer.message)}</p>`
+        : '';
+    const stats = ended
+        ? ''
+        : `
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-6">
+      ${stat('Requests per cycle', n(data.requestsAmount))}
+      ${stat('Price per cycle', money(data.price))}
+      ${stat('Balance', n(data.balance))}
+      ${stat('Next charge', d(data.currentPeriodEnd))}
+    </div>`;
+    const pendingRow = data.pendingChange
+        ? `<p class="mt-4 text-sm text-slate-500 dark:text-slate-400">
+         Pending change next cycle: <strong>${n(data.pendingChange.requestsAmount)}</strong> requests
+         (${money(data.pendingChange.price)}/cycle)
        </p>`
         : '';
     const changeForm = active
-        ? `<form method="POST" action="${esc(dashboardPath)}/subscription/change" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-         <label style="font-size:13px;">New monthly tokens:
-           <input type="number" name="requestsAmount" min="50000" step="50000" value="${data.requestsAmount}"
-             style="margin-left:6px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;width:140px;">
+        ? `<form method="POST" action="${esc(dashboardPath)}/subscription/change" class="mt-6 flex flex-wrap items-end gap-3">
+         <label class="text-sm">
+           <span class="block text-xs text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Requests per cycle</span>
+           <input type="number" name="requestsAmount" min="50000" step="50000" value="${esc(String(data.requestsAmount))}"
+             class="w-40 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 focus-ring">
          </label>
-         <button type="submit" style="padding:8px 14px;border:0;border-radius:8px;background:#4f46e5;color:#fff;cursor:pointer;">Change (next cycle)</button>
+         <button type="submit" class="${BUTTON_PRIMARY}">Change from next cycle</button>
        </form>
-       <p style="font-size:12px;color:var(--text-secondary,#64748b);margin-top:4px;">An increase may require re-approval on PayPal.</p>`
+       <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">A higher amount may ask you to approve the new price on PayPal.</p>`
         : '';
-    const cancelForm = active && !cancelledOrEnding
-        ? `<form method="POST" action="${esc(dashboardPath)}/subscription/cancel" style="margin-top:8px;"
-             onsubmit="return confirm('Cancel subscription? Remaining tokens stay usable for the grace period.');">
-         <button type="submit" style="padding:8px 14px;border:1px solid #ef4444;border-radius:8px;background:transparent;color:#ef4444;cursor:pointer;">Cancel subscription</button>
+    const cancelForm = active || suspended
+        ? `<form method="POST" action="${esc(dashboardPath)}/subscription/cancel" class="mt-4"
+             onsubmit="return confirm('Turn off auto-renew? The requests left on this key stay usable for the grace period.');">
+         <button type="submit" class="inline-flex items-center px-4 py-2 rounded-lg border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 text-sm font-medium transition-colors focus-ring">Turn off auto-renew</button>
        </form>`
         : '';
     return `
-  <div class="card animate-fade-in" style="margin-top:24px;padding:20px;border:1px solid #e2e8f0;border-radius:16px;">
-    <h3 style="margin:0 0 12px;font-size:18px;display:flex;align-items:center;gap:8px;">🔁 Subscription</h3>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
-      <div><p style="font-size:12px;color:#64748b;text-transform:uppercase;">Status</p><p style="font-size:18px;font-weight:700;">${esc(data.status)}</p></div>
-      <div><p style="font-size:12px;color:#64748b;text-transform:uppercase;">Tokens / cycle</p><p style="font-size:18px;font-weight:700;">${n(data.requestsAmount)}</p></div>
-      <div><p style="font-size:12px;color:#64748b;text-transform:uppercase;">Balance</p><p style="font-size:18px;font-weight:700;">${n(data.balance)}</p></div>
-      <div><p style="font-size:12px;color:#64748b;text-transform:uppercase;">Next billing</p><p style="font-size:18px;font-weight:700;">${d(data.currentPeriodEnd)}</p></div>
-    </div>
+  <section class="${CARD}" aria-labelledby="autoRenewHeading">
+    ${header(badgeHtml, lead, backOn)}
+    ${reason}
+    ${stats}
     ${pendingRow}
-    ${graceRow}
     ${changeForm}
     ${cancelForm}
-  </div>`;
+  </section>`;
+}
+/**
+ * The section's HTML, or '' when there is nothing to show. `autoRenewUrl`
+ * is the checkout link that starts auto-renew for this key (null when no
+ * checkout is configured: then a key without a subscription shows nothing).
+ */
+function renderSubscriptionPanel(input, dashboardPath, autoRenewUrl) {
+    var _a;
+    if (!input)
+        return '';
+    if (input.kind === 'none')
+        return renderOff(input, autoRenewUrl);
+    return renderSubscription(input.data, (_a = input.offer) !== null && _a !== void 0 ? _a : null, dashboardPath, autoRenewUrl);
 }
