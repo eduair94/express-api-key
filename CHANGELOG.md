@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.3] - 2026-10-18
+### Changed
+- Dependency ranges for the CLI-only packages relaxed so host apps dedupe them: `discord.js`
+  `^14.21.0` (the Discord bot), `dotenv` `^16.0.0 || ^17.0.0 || ^18.0.0` (`dotenv/config` in the CLI).
+  The middleware and dashboard import neither. No code changes.
+
 ## [1.7.2] - 2026-10-18
 ### Added
 - The auto-renew panel's "Requests per cycle" form takes its `min` / `step` from the
