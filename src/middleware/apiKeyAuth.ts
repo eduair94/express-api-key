@@ -17,6 +17,7 @@ import { buildRenewUrl } from "../dashboard/renewLinks";
 import { parseSubscriptionStatus, renderSubscriptionPanel } from "../dashboard/subscriptionPanel";
 import { ApiKeySchema, IApiKey } from "../models/ApiKey";
 import { RoleSchema } from "../models/Role";
+import { configureUsageAccounting, persistUsageDebit, usageCategory, UsageAccountingOptions } from '../usageAccounting';
 
 // Minimal fetch declaration for Node 20 global fetch (not in ES2018 lib).
 declare const fetch: (
@@ -82,6 +83,8 @@ export interface ApiKeyMiddlewareOptions {
   exposeStatsEndpoint?: boolean;
   statsEndpointPath?: string;
   countOnly200?: boolean; // If true, only count requests with 200 status code (default: true)
+  /** Optional internal debit accounting; does not change which responses cost a credit. */
+  usageAccounting?: UsageAccountingOptions;
   exposeDashboard?: boolean; // If true, expose a UI dashboard at dashboardPath
   dashboardPath?: string; // Path for the dashboard UI (default: "/dashboard")
   docsUrl?: string; // API documentation URL linked from the dashboard (default: "/docs")
@@ -113,6 +116,8 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
   const exposeStats = options.exposeStatsEndpoint ?? false;
   const statsPath = options.statsEndpointPath || "/api-key-stats";
   const countOnly200 = options.countOnly200 ?? true; // Default to only counting 200 status
+  const usageAccounting = configureUsageAccounting(options.usageAccounting);
+  let lastDebitWarningAt = -Infinity;
   const exposeDashboard = options.exposeDashboard ?? false;
   const dashboardPath = options.dashboardPath || "/dashboard";
   const docsUrl = options.docsUrl || "/docs";
@@ -159,7 +164,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
   if (exposeStats) {
     router.get(statsPath, async (req: Request, res: Response) => {
       const apiKey = req.header(headerName);
-      const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+      const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
       const roleInfo = apiKeyDoc ? await RoleModel.findOne({ name: apiKeyDoc.role }) : null;
 
       if (!apiKeyDoc) {
@@ -275,7 +280,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
         }));
       }
 
-      const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+      const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
       
       if (!apiKeyDoc) {
         res.setHeader("Content-Type", "text/html");
@@ -311,7 +316,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
         return res.redirect(`${dashboardPath}/login`);
       }
 
-      const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+      const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
       
       if (!apiKeyDoc) {
         // Invalid key - destroy any existing session and redirect to login
@@ -457,7 +462,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     }
 
     // Find API key in MongoDB
-    const keyDoc = await ApiKeyModel.findOne({ key: apiKey });
+    const keyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
     if (!keyDoc) {
       return res.status(401).json({ error: "Invalid API key" });
     }
@@ -555,7 +560,7 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
         ],
       },
       { $set: { lastUsedAt: now } },
-      { returnDocument: "after" },
+      { returnDocument: "after", projection: { _id: 1 } },
     );
     if (!rateLimitResult) {
       // Revert in-memory timestamp so the next request re-checks cleanly
@@ -594,16 +599,23 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     // Attach key info to request for downstream use
     (req as any).apiKeyDoc = keyDoc;
 
-    // Increment requestCountMonth based on countOnly200 option.
-    // Uses atomic $inc to avoid overwriting the lastUsedAt that was
-    // already set by the atomic findOneAndUpdate above.
-    res.on("finish", async () => {
+    // The response status decides billing exactly as before. Accounting, when
+    // enabled, is part of that same atomic write, never a second operation.
+    res.once("finish", () => {
       const shouldCount = countOnly200 ? res.statusCode === 200 : true;
       if (shouldCount) {
-        await ApiKeyModel.updateOne(
-          { key: apiKey },
-          { $inc: { requestCountMonth: 1 } },
-        );
+        const completedAt = new Date();
+        const category = usageAccounting ? usageCategory(usageAccounting, req, res) : 'unknown';
+        void persistUsageDebit(ApiKeyModel, apiKey!, usageAccounting, category, completedAt).then((outcome) => {
+          if (outcome === 'confirmed') return;
+          // Fixed labels only: driver errors may contain keys, URLs or payloads.
+          // Bound warning volume during a database outage. Never retry here.
+          const warningAt = Date.now();
+          if (warningAt - lastDebitWarningAt >= 60_000) {
+            lastDebitWarningAt = warningAt;
+            console.warn(`[express-api-key] usage debit ${outcome}; no automatic retry`);
+          }
+        });
       }
     });
     next();
@@ -732,7 +744,7 @@ export function createRenewalFunction(mongoose: Mongoose) {
         { $unset: ['_currentExpiry', '_isExpired'] },
       ],
       // Mongoose 9 rejects update pipelines unless explicitly allowed.
-      { returnDocument: "after", updatePipeline: true },
+      { returnDocument: "after", updatePipeline: true, projection: { usageAccounting: 0 } },
     );
 
     return updated;

@@ -1,10 +1,13 @@
 import { Mongoose } from "mongoose";
 import { IApiKey } from "../models/ApiKey";
+import { UsageAccountingOptions } from '../usageAccounting';
 export interface ApiKeyMiddlewareOptions {
     headerName?: string;
     exposeStatsEndpoint?: boolean;
     statsEndpointPath?: string;
     countOnly200?: boolean;
+    /** Optional internal debit accounting; does not change which responses cost a credit. */
+    usageAccounting?: UsageAccountingOptions;
     exposeDashboard?: boolean;
     dashboardPath?: string;
     docsUrl?: string;
@@ -55,7 +58,7 @@ export interface RenewalOptions {
  * });
  * ```
  */
-export declare function createRenewalFunction(mongoose: Mongoose): (key: string, options: RenewalOptions) => Promise<(import("mongoose").Document<unknown, {}, IApiKey, {}, import("mongoose").DefaultSchemaOptions> & IApiKey & Required<{
+export declare function createRenewalFunction(mongoose: Mongoose): (key: string, options: RenewalOptions) => Promise<(import("mongoose").Document<unknown, {}, Omit<IApiKey, "usageAccounting">, {}, import("mongoose").DefaultSchemaOptions> & Omit<IApiKey, "usageAccounting"> & Required<{
     _id: import("mongoose").Types.ObjectId;
 }> & {
     __v: number;

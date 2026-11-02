@@ -12,6 +12,7 @@ const renewLinks_1 = require("../dashboard/renewLinks");
 const subscriptionPanel_1 = require("../dashboard/subscriptionPanel");
 const ApiKey_1 = require("../models/ApiKey");
 const Role_1 = require("../models/Role");
+const usageAccounting_1 = require("../usageAccounting");
 function getOrCreateModel(mongoose, name, schema) {
     return mongoose.models[name] || mongoose.model(name, schema);
 }
@@ -58,6 +59,8 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
     const exposeStats = (_a = options.exposeStatsEndpoint) !== null && _a !== void 0 ? _a : false;
     const statsPath = options.statsEndpointPath || "/api-key-stats";
     const countOnly200 = (_b = options.countOnly200) !== null && _b !== void 0 ? _b : true; // Default to only counting 200 status
+    const usageAccounting = (0, usageAccounting_1.configureUsageAccounting)(options.usageAccounting);
+    let lastDebitWarningAt = -Infinity;
     const exposeDashboard = (_c = options.exposeDashboard) !== null && _c !== void 0 ? _c : false;
     const dashboardPath = options.dashboardPath || "/dashboard";
     const docsUrl = options.docsUrl || "/docs";
@@ -94,7 +97,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
         router.get(statsPath, async (req, res) => {
             var _a, _b, _c, _d;
             const apiKey = req.header(headerName);
-            const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+            const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
             const roleInfo = apiKeyDoc ? await RoleModel.findOne({ name: apiKeyDoc.role }) : null;
             if (!apiKeyDoc) {
                 return res.status(404).json({ error: "API key not found" });
@@ -193,7 +196,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                     dashboardPath
                 }));
             }
-            const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+            const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
             if (!apiKeyDoc) {
                 res.setHeader("Content-Type", "text/html");
                 return res.status(401).send((0, dashboard_1.renderLoginPage)({
@@ -223,7 +226,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 // No session or header - redirect to login
                 return res.redirect(`${dashboardPath}/login`);
             }
-            const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey });
+            const apiKeyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
             if (!apiKeyDoc) {
                 // Invalid key - destroy any existing session and redirect to login
                 await (0, dashboard_1.destroySession)(req, res, sessionOptions);
@@ -362,7 +365,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
             return res.status(401).json({ error: "API key missing" });
         }
         // Find API key in MongoDB
-        const keyDoc = await ApiKeyModel.findOne({ key: apiKey });
+        const keyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
         if (!keyDoc) {
             return res.status(401).json({ error: "Invalid API key" });
         }
@@ -443,7 +446,7 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
                 { lastUsedAt: null },
                 { lastUsedAt: { $lte: earliestAllowed } },
             ],
-        }, { $set: { lastUsedAt: now } }, { returnDocument: "after" });
+        }, { $set: { lastUsedAt: now } }, { returnDocument: "after", projection: { _id: 1 } });
         if (!rateLimitResult) {
             // Revert in-memory timestamp so the next request re-checks cleanly
             if (lastInMemory !== undefined) {
@@ -475,13 +478,24 @@ function createApiKeyMiddlewareWithConnection(mongoose, options = {}) {
         // Endpoint authorization can be handled by route-level middleware (see allowRoles)
         // Attach key info to request for downstream use
         req.apiKeyDoc = keyDoc;
-        // Increment requestCountMonth based on countOnly200 option.
-        // Uses atomic $inc to avoid overwriting the lastUsedAt that was
-        // already set by the atomic findOneAndUpdate above.
-        res.on("finish", async () => {
+        // The response status decides billing exactly as before. Accounting, when
+        // enabled, is part of that same atomic write, never a second operation.
+        res.once("finish", () => {
             const shouldCount = countOnly200 ? res.statusCode === 200 : true;
             if (shouldCount) {
-                await ApiKeyModel.updateOne({ key: apiKey }, { $inc: { requestCountMonth: 1 } });
+                const completedAt = new Date();
+                const category = usageAccounting ? (0, usageAccounting_1.usageCategory)(usageAccounting, req, res) : 'unknown';
+                void (0, usageAccounting_1.persistUsageDebit)(ApiKeyModel, apiKey, usageAccounting, category, completedAt).then((outcome) => {
+                    if (outcome === 'confirmed')
+                        return;
+                    // Fixed labels only: driver errors may contain keys, URLs or payloads.
+                    // Bound warning volume during a database outage. Never retry here.
+                    const warningAt = Date.now();
+                    if (warningAt - lastDebitWarningAt >= 60000) {
+                        lastDebitWarningAt = warningAt;
+                        console.warn(`[express-api-key] usage debit ${outcome}; no automatic retry`);
+                    }
+                });
             }
         });
         next();
@@ -592,7 +606,7 @@ function createRenewalFunction(mongoose) {
             { $unset: ['_currentExpiry', '_isExpired'] },
         ], 
         // Mongoose 9 rejects update pipelines unless explicitly allowed.
-        { returnDocument: "after", updatePipeline: true });
+        { returnDocument: "after", updatePipeline: true, projection: { usageAccounting: 0 } });
         return updated;
     };
 }

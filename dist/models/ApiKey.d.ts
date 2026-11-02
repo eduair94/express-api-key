@@ -1,4 +1,5 @@
 import { Document, Schema } from "mongoose";
+import type { UsageAccountingRecord } from '../usageAccounting';
 export interface IApiKey extends Document {
     key: string;
     role: string;
@@ -7,6 +8,7 @@ export interface IApiKey extends Document {
     lastUsedAt?: Date;
     requestCountMonth: number;
     requestCountStart?: Date;
+    usageAccounting?: UsageAccountingRecord;
     maxMonthlyUsage?: number | null;
     minIntervalSeconds?: number | null;
     expiresAt?: Date | null;
@@ -84,6 +86,15 @@ export declare const ApiKeySchema: Schema<IApiKey, import("mongoose").Model<IApi
         id: string;
     }>> | undefined;
     requestCountStart?: import("mongoose").SchemaDefinitionProperty<Date | undefined, IApiKey, Document<unknown, {}, IApiKey, {
+        id: string;
+    }, import("mongoose").DefaultSchemaOptions> & Omit<IApiKey & Required<{
+        _id: import("mongoose").Types.ObjectId;
+    }> & {
+        __v: number;
+    }, "id"> & import("mongoose").HydratedDocumentOverrides<{
+        id: string;
+    }>> | undefined;
+    usageAccounting?: import("mongoose").SchemaDefinitionProperty<UsageAccountingRecord | undefined, IApiKey, Document<unknown, {}, IApiKey, {
         id: string;
     }, import("mongoose").DefaultSchemaOptions> & Omit<IApiKey & Required<{
         _id: import("mongoose").Types.ObjectId;

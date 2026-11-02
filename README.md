@@ -61,6 +61,87 @@ subscription (`success` + `data`) is shown with change/turn-off controls; `code:
 with `autoRenew: { available, message }` offers "Turn on auto-renew" (or says why it is not
 available). Its change form uses the status's `requestBounds: { min, step }` (default 50,000 / 50,000).
 
+### 4. Confirmed debit accounting (optional)
+
+```typescript
+app.use(createApiKeyMiddlewareWithConnection(mongoose, {
+  countOnly200: true, // the existing billing policy; accounting does not change it
+  usageAccounting: {
+    categories: ['lookup', 'bulk', 'profile'],
+    // Return a server-owned label, never a URL, key, number or customer identifier.
+    category: (req) => req.path.startsWith('/profile/') ? 'profile' : 'lookup',
+  },
+}));
+```
+
+Omit `usageAccounting` to retain the original debit write without creating accounting
+fields. Configuration accepts at most 31 category names (`[a-z][a-z0-9_-]{0,31}`),
+plus the reserved `unknown` category. Invalid configuration fails at startup. The
+classifier is synchronous; missing, invalid or throwing results become `unknown`.
+Changing the allowlist folds retired labels into `unknown` when that day is next
+updated, preserving the day's total.
+
+A response that finishes with HTTP 200 still consumes exactly one credit when
+`countOnly200` is true, including a bulk response. With `countOnly200: false`, every
+finished response that reached the debit listener still counts. Rejected requests
+before that listener and connections closed without `finish` do not count. This
+feature does not add per-number billing or deduplicate repeated HTTP requests.
+
+The existing quota counter and the accounting are updated in **one atomic MongoDB
+document operation**. `finish` itself is not proof of a persisted debit: the database
+write can fail. The middleware checks its acknowledgement/result, catches failures,
+and emits only a fixed warning label (at most once per minute per middleware).
+It never retries a debit after an error or a lost acknowledgement, and does not
+delay or change the HTTP response. Existing driver/write-concern settings still
+determine durability; acknowledgement does not imply majority persistence.
+
+Internal storage, under the existing API-key document:
+
+```typescript
+usageAccounting: {
+  version: 1,
+  totalDebitedCredits: 12,       // never reset by quota renewal/reset
+  firstRecordedDay: '2026-11-02',
+  lastRecordedDay: '2026-11-02',
+  outOfWindowDebits: 0,         // old clock date could not replace a newer slot
+  daily: {
+    // UTC epoch day modulo 90.
+    '59': {
+      day: '2026-11-02',
+      debitedCredits: 12,
+      categories: { lookup: 10, unknown: 2 },
+    },
+  },
+}
+```
+
+Only numeric aggregates and fixed labels are added: no new identifiers, request
+payloads, URLs, phone numbers or emails. Days use the server's response-completion
+time in UTC. The ring has at most 90 slots and 32 categories per slot. Reusing a slot
+replaces its older day atomically; a date older than an occupied slot increments
+`outOfWindowDebits` and the lifetime total without overwriting that slot. Inactive
+keys can retain old slots, so **always filter by `day` for the reporting window**;
+the field is not a TTL index and never expires an API key. The test's worst-case
+90-by-32 fixture is below 256 KiB, well below MongoDB's 16 MiB document limit.
+Existing unrelated data still contributes to the full document size.
+
+Normal library reads explicitly exclude the field, its schema uses `select: false`,
+and document `toJSON()`/`toObject()` omit it even after an explicit selection.
+Raw collection queries, aggregation and explicitly selected lean results bypass
+those protections. Use them only for internal reporting and project aggregate
+numbers without API keys or document IDs; no public accounting endpoint is added.
+
+Accounting starts on activation; it does not backfill old usage or prove continuous
+coverage when switched off. It measures direct debited HTTP requests, not live
+checks, cache hits, revenue, or external marketplace billing. Counter resets do not
+erase it, but existing quota-admission/reset concurrency semantics are unchanged.
+The additional bounded update has a per-request cost; validate it against the
+deployment's traffic before enabling it broadly.
+
+The opt-in uses MongoDB 4.2+ aggregation update expressions, as the renewal helper
+already does. `npm run test:usage` exercises MongoDB 8.2.6 locally with Mongoose
+9.10.3 and the minimum supported 8.16.5. It does not connect to production.
+
 ## CLI Usage
 
 This package provides a CLI for managing roles and generating API keys.
