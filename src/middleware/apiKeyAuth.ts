@@ -40,6 +40,27 @@ function getOrCreateModel<T extends object>(mongoose: Mongoose, name: string, sc
   return mongoose.models[name] || mongoose.model<T>(name, schema);
 }
 
+function isKeyExpired(keyDoc: IApiKey, now: Date): boolean {
+  if (keyDoc.expiresAt) return now > new Date(keyDoc.expiresAt);
+  if (typeof keyDoc.daysValid === "number" && keyDoc.requestCountStart) {
+    return now.getTime() > new Date(keyDoc.requestCountStart).getTime()
+      + keyDoc.daysValid * 24 * 60 * 60 * 1000;
+  }
+  return false;
+}
+
+// Mongoose can hydrate an absent field with a default (notably daysValid=30).
+// Compare its stored absence, not the hydrated default, in a reset's CAS.
+function observedQuotaField<Field extends 'requestCountStart' | 'maxMonthlyUsage' | 'expiresAt' | 'daysValid' | 'role'>(
+  keyDoc: IApiKey, field: Field,
+): IApiKey[Field] | { $exists: false } | { $eq: null; $exists: true } {
+  const value = keyDoc.get(field);
+  if (keyDoc.$isDefault(field) || value === undefined) return { $exists: false };
+  // Explicit null and missing can differ: daysValid=null disables relative
+  // expiration, whereas a missing daysValid hydrates to the 30-day default.
+  return value === null ? { $eq: null, $exists: true } : value;
+}
+
 async function fetchSubscriptionPanel(
   baseUrl: string,
   internalSecret: string,
@@ -462,72 +483,61 @@ export function createApiKeyMiddlewareWithConnection(mongoose: Mongoose, options
     }
 
     // Find API key in MongoDB
-    const keyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
-    if (!keyDoc) {
-      return res.status(401).json({ error: "Invalid API key" });
-    }
+    let keyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
+    let now = new Date();
+    let roleConfig: any = {};
+    let resetConflicts = 0;
 
-    // Check expiration: prefer expiresAt (absolute) over daysValid (relative)
-    if (keyDoc.expiresAt) {
-      if (new Date() > new Date(keyDoc.expiresAt)) {
+    // A reset must still own the window and authorization snapshot it read.
+    // Otherwise a delayed request could erase a newer debit or undo a renewal.
+    // On a CAS miss, reload before checking expiration, role and quota again.
+    while (true) {
+      if (!keyDoc) return res.status(401).json({ error: "Invalid API key" });
+      if (isKeyExpired(keyDoc, new Date())) {
         return res.status(401).json({ error: "API key expired" });
       }
-    } else if (typeof keyDoc.daysValid === "number") {
-      const start = keyDoc.requestCountStart;
-      if (start) {
-        const expiresAt = new Date(new Date(start).getTime() + keyDoc.daysValid * 24 * 60 * 60 * 1000);
-        if (new Date() > expiresAt) {
-          return res.status(401).json({ error: "API key expired" });
-        }
-      }
-    }
 
-    // --- Rate limiting and usage tracking (per-role configurable) ---
-    const now = new Date();
-
-    // Get role config if present (from DB, not hardcoded)
-    let roleConfig: any = {};
-    if (keyDoc.role) {
-      const roleDoc = await RoleModel.findOne({ name: keyDoc.role });
-      if (roleDoc) {
-        roleConfig = roleDoc.toObject();
+      roleConfig = {};
+      if (keyDoc.role) {
+        const roleDoc = await RoleModel.findOne({ name: keyDoc.role });
+        if (roleDoc) roleConfig = roleDoc.toObject();
       }
-    }
 
-    // Rolling 30-day quota tracking
-    // ONLY auto-reset for keys using role-based quotas (no per-key override).
-    // Keys with per-key maxMonthlyUsage have their quota managed exclusively
-    // via createRenewalFunction — they must NOT be auto-reset.
-    // Resets are persisted immediately with an atomic updateOne so that
-    // the finish callback can use a simple $inc without stale data.
-    if (!keyDoc.maxMonthlyUsage) {
-      if (!keyDoc.requestCountStart) {
-        await ApiKeyModel.updateOne(
-          { key: apiKey },
-          { $set: { requestCountStart: now, requestCountMonth: 0 } },
-        );
-        keyDoc.requestCountStart = now;
-        keyDoc.requestCountMonth = 0;
-      } else {
-        const start = new Date(keyDoc.requestCountStart);
-        const daysSinceStart = (now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
-        if (daysSinceStart >= 30) {
-          await ApiKeyModel.updateOne(
-            { key: apiKey },
-            { $set: { requestCountMonth: 0, requestCountStart: now } },
-          );
-          keyDoc.requestCountMonth = 0;
-          keyDoc.requestCountStart = now;
-        }
+      now = new Date();
+      if (isKeyExpired(keyDoc, now)) {
+        return res.status(401).json({ error: "API key expired" });
       }
-    } else if (!keyDoc.requestCountStart) {
-      // Per-key quota key used for the first time — set the start date but don't auto-reset later
-      await ApiKeyModel.updateOne(
-        { key: apiKey },
+      // Preserve first-use initialization for all keys and rolling 30-day
+      // resets only for role quotas. Paid overrides still renew explicitly.
+      const needsReset = !keyDoc.requestCountStart || (!keyDoc.maxMonthlyUsage
+        && now.getTime() - new Date(keyDoc.requestCountStart).getTime() >= 30 * 24 * 60 * 60 * 1000);
+      if (!needsReset) break;
+
+      // Bound contention and legacy BSON values that hydrate with a different
+      // type. A final fresh read may proceed if another request resolved it.
+      if (resetConflicts >= 3) {
+        return res.status(503).json({ error: "API key changed; retry request" });
+      }
+
+      const reset = await ApiKeyModel.findOneAndUpdate(
+        {
+          _id: keyDoc._id,
+          key: apiKey,
+          requestCountStart: observedQuotaField(keyDoc, 'requestCountStart'),
+          maxMonthlyUsage: observedQuotaField(keyDoc, 'maxMonthlyUsage'),
+          expiresAt: observedQuotaField(keyDoc, 'expiresAt'),
+          daysValid: observedQuotaField(keyDoc, 'daysValid'),
+          role: observedQuotaField(keyDoc, 'role'),
+        },
         { $set: { requestCountStart: now, requestCountMonth: 0 } },
+        { returnDocument: "after", projection: { usageAccounting: 0 } },
       );
-      keyDoc.requestCountStart = now;
-      keyDoc.requestCountMonth = 0;
+      if (reset) {
+        keyDoc = reset;
+        break;
+      }
+      resetConflicts++;
+      keyDoc = await ApiKeyModel.findOne({ key: apiKey }).select('-usageAccounting');
     }
 
     // Minimum interval between requests (per-key override > role config > default 2s)

@@ -134,13 +134,23 @@ numbers without API keys or document IDs; no public accounting endpoint is added
 Accounting starts on activation; it does not backfill old usage or prove continuous
 coverage when switched off. It measures direct debited HTTP requests, not live
 checks, cache hits, revenue, or external marketplace billing. Counter resets do not
-erase it, but existing quota-admission/reset concurrency semantics are unchanged.
+erase it. First-use and rolling quota resets compare the observed window, cap and
+authorization fields before writing; a concurrent reset or renewal forces a fresh
+quota check instead of overwriting its result. Quota admission is still checked
+before the response and charged after it, so parallel accepted requests can exceed
+the remaining quota; this accounting does not reserve credits in advance.
+Three conflicting reset attempts return 503 if a fresh read still needs a reset,
+without admitting or charging the request. Noncanonical legacy BSON types may
+also require correcting the stored field before a reset can proceed; the
+middleware never rewrites those types.
 The additional bounded update has a per-request cost; validate it against the
 deployment's traffic before enabling it broadly.
 
 The opt-in uses MongoDB 4.2+ aggregation update expressions, as the renewal helper
 already does. `npm run test:usage` exercises MongoDB 8.2.6 locally with Mongoose
 9.10.3 and the minimum supported 8.16.5. It does not connect to production.
+`npm run test:quota-reset` uses the same matrix for deterministic reset races,
+concurrent renewals, expiration changes and legacy null/missing fields.
 
 ## CLI Usage
 
